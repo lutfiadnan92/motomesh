@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="id" class="dark">
+  <head>
+    <meta charset="UTF-8">
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
+    >
+    <title>MotoMesh - Low-Latency Touring Intercom</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap"
+      rel="stylesheet"
+    >
+    <link rel="stylesheet" href="./index.css">
+    <script>
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            fontFamily: {
+              sans: ["Inter", "sans-serif"],
+              mono: ["JetBrains Mono", "monospace"],
+            },
+            colors: {
+              asphalt: {
+                950: "#090b0e",
+                900: "#11151c",
+                800: "#1a202c",
+                700: "#2d3748",
+              },
+              brand: {
+                orange: "#ff5500",
+                amber: "#f59e0b",
+                emerald: "#10b981",
+              },
+            },
+          },
+        },
+      };
+    </script>
+  </head>
+  <body
+    class="min-h-screen flex flex-col justify-between antialiased selection:bg-brand-orange selection:text-white"
+  >
+    <div
+      id="setup-overlay"
+      class="fixed inset-0 z-50 bg-asphalt-950/95 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto"
+    >
+      <div
+        class="w-full max-w-md bg-asphalt-900 border border-asphalt-700 rounded-2xl p-6 shadow-2xl my-auto"
+      >
+        <div class="flex items-center gap-3 mb-4">
+          <div
+            class="w-12 h-12 rounded-xl bg-brand-orange/20 border border-brand-orange/40 flex items-center justify-center text-brand-orange"
+          >
+            <svg class="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.857 15.355-5.857 21.213 0"
+              ></path>
+            </svg>
+          </div>
+          <div>
+            <h1 class="text-xl font-extrabold tracking-tight text-white">MOTO<span class="text-brand-orange">MESH</span></h1>
+            <p class="text-xs text-gray-400">Ultra-Low Latency Touring Intercom</p>
+          </div>
+        </div>
+
+        <div class="space-y-3.5">
+          <div>
+            <label
+              class="block text-xs font-semibold uppercase tracking-wider text-gray-400 mb-1"
+            >Callsign / Nama Rider</label>
+            <input
+              type="text"
+              id="rider-name-input"
+              maxlength="16"
+              placeholder="Contoh: RIDER-01 / ANDI"
+              class="w-full bg-asphalt-950 border border-asphalt-700 rounded-xl px-4 py-2.5 text-white font-mono text-sm focus:outline-none focus:border-brand-orange transition"
+            >
+          </div>
+
+          <div>
+            <label
+              class="block text-xs font-semibold uppercase tracking-wider text-gray-400 mb-1"
+            >Profil Kompresi Jaringan</label>
+            <select
+              id="bandwidth-profile"
+              class="w-full bg-asphalt-950 border border-asphalt-700 rounded-xl px-4 py-2.5 text-white text-sm focus:outline-none focus:border-brand-orange"
+            >
+              <option value="8000" selected>Sinyal Ekstrem / Gunung (8 kbps + FEC)</option>
+              <option value="14000">Touring Standar (14 kbps + Filter Angin)</option>
+              <option value="24000">4G/5G Stabil (24 kbps Jernih)</option>
+            </select>
+          </div>
+
+          <div class="bg-asphalt-950/90 border border-asphalt-800 rounded-xl p-3">
+            <div class="flex items-center justify-between">
+              <div>
+                <div class="text-xs font-bold text-gray-200 flex items-center gap-1.5">
+                  <span>Relay TURN Server (4G/5G CGNAT)</span>
+                  <span
+                    class="text-[10px] bg-emerald-500/20 text-emerald-400 px-1.5 py-0.5 rounded font-mono"
+                  >AKTIF</span>
+                </div>
+                <p class="text-[11px] text-gray-400 mt-0.5">Menjamin koneksi tembus antar operator seluler</p>
+              </div>
+              <button
+                type="button"
+                id="toggle-custom-turn-btn"
+                class="text-[11px] font-mono text-brand-orange hover:underline"
+              >
+                Kustomisasi
+              </button>
+            </div>
+
+            <div
+              id="custom-turn-panel"
+              class="hidden mt-3 pt-3 border-t border-asphalt-800 space-y-2"
+            >
+              <p class="text-[10px] text-gray-400 leading-relaxed">
+                Masukkan kredensial TURN gratis (misal dari <b>Metered.ca</b>) jika ingin menggunakan server pribadi, atau biarkan kosong untuk memakai TURN bawaan.
+              </p>
+              <input
+                type="text"
+                id="turn-url-input"
+                placeholder="turn:a.relay.metered.ca:80"
+                class="w-full bg-asphalt-900 border border-asphalt-700 rounded-lg px-3 py-1.5 text-xs font-mono text-white focus:outline-none focus:border-brand-orange"
+              >
+              <div class="grid grid-cols-2 gap-2">
+                <input
+                  type="text"
+                  id="turn-user-input"
+                  placeholder="Username TURN"
+                  class="w-full bg-asphalt-900 border border-asphalt-700 rounded-lg px-3 py-1.5 text-xs font-mono text-white focus:outline-none focus:border-brand-orange"
+                >
+                <input
+                  type="password"
+                  id="turn-pass-input"
+                  placeholder="Credential / Password"
+                  class="w-full bg-asphalt-900 border border-asphalt-700 rounded-lg px-3 py-1.5 text-xs font-mono text-white focus:outline-none focus:border-brand-orange"
+                >
+              </div>
+            </div>
+          </div>
+
+          <div
+            class="bg-asphalt-950/60 border border-asphalt-800/80 rounded-xl p-2.5 text-[11px] text-gray-400 space-y-1"
+          >
+            <div class="flex items-center gap-2 text-emerald-400 font-medium">
+              <span>●</span> STUN + TURN Relay Siap (Tembus Firewall Seluler)
+            </div>
+            <div class="flex items-center gap-2 text-amber-400 font-medium">
+              <span>●</span> Screen Wake Lock (Layar Tetap Menyala Saat Touring)
+            </div>
+          </div>
+
+          <button
+            id="start-system-btn"
+            class="w-full bg-brand-orange hover:bg-orange-600 active:scale-[0.98] text-white font-bold py-3.5 px-4 rounded-xl shadow-lg shadow-brand-orange/25 transition flex items-center justify-center gap-2"
+          >
+            <span>AKTIFKAN RADIO TOURING</span>
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M13 10V3L4 14h7v7l9-11h-7z"
+              ></path></svg>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <header
+      class="bg-asphalt-900 border-b border-asphalt-800 px-4 py-3 sticky top-0 z-30"
+    >
+      <div class="max-w-lg mx-auto flex items-center justify-between">
+        <div class="flex items-center gap-2.5">
+          <div id="status-dot" class="w-3 h-3 rounded-full bg-amber-500 animate-pulse"></div>
+          <div>
+            <div class="flex items-center gap-1.5">
+              <span class="font-extrabold text-sm tracking-wide text-white">MOTOMESH</span>
+              <span
+                id="network-mode-badge"
+                class="text-[10px] font-mono bg-asphalt-800 text-brand-orange px-1.5 py-0.5 rounded border border-brand-orange/30"
+              >8K FEC</span>
+              <span
+                id="turn-status-badge"
+                class="text-[10px] font-mono bg-emerald-500/15 text-emerald-400 px-1.5 py-0.5 rounded border border-emerald-500/30"
+              >TURN</span>
+            </div>
+            <p id="connection-status-text" class="text-[11px] text-gray-400">Menyiapkan radio...</p>
+          </div>
+        </div>
+
+        <div class="flex items-center gap-2">
+          <button
+            id="copy-id-btn"
+            class="bg-asphalt-950 hover:bg-asphalt-800 border border-asphalt-700 rounded-xl px-3 py-1.5 text-right transition active:scale-95"
+            title="Klik untuk menyalin ID"
+          >
+            <div class="text-[10px] text-gray-400 uppercase">ID Anda (Salin)</div>
+            <div id="my-peer-id" class="font-mono text-xs font-bold text-emerald-400">------</div>
+          </button>
+          <button
+            id="leave-session-btn"
+            class="bg-red-500/15 hover:bg-red-500/25 active:scale-95 border border-red-500/40 text-red-400 rounded-xl px-2.5 py-2 text-xs font-bold transition flex flex-col items-center justify-center"
+            title="Keluar dari sesi komunikasi"
+          >
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"
+              ></path></svg>
+            <span class="text-[9px] font-mono mt-0.5">LEAVE</span>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <main class="flex-1 max-w-lg w-full mx-auto px-4 py-4 flex flex-col gap-4">
+      <section class="bg-asphalt-900 border border-asphalt-800 rounded-2xl p-3.5">
+        <div class="flex items-center justify-between mb-2.5">
+          <h2 class="text-xs font-bold uppercase tracking-wider text-gray-400">Rombongan (<span id="peer-count">0</span>)</h2>
+          <div class="flex items-center gap-1.5">
+            <span
+              id="wakelock-badge"
+              class="text-[10px] font-mono px-2 py-1 rounded-lg bg-asphalt-800 text-gray-400 border border-asphalt-700"
+            >
+              LAYAR: NORMAL
+            </span>
+            <button
+              id="toggle-wind-filter"
+              class="text-[10px] font-mono px-2 py-1 rounded-lg bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 transition"
+            >
+              ANGIN: ON
+            </button>
+          </div>
+        </div>
+
+        <div class="flex gap-2 mb-3">
+          <input
+            type="text"
+            id="target-peer-input"
+            placeholder="Masukkan ID Rider teman..."
+            class="flex-1 bg-asphalt-950 border border-asphalt-700 rounded-xl px-3 py-2.5 text-sm font-mono uppercase text-white placeholder-gray-600 focus:outline-none focus:border-brand-orange"
+          >
+          <button
+            id="connect-peer-btn"
+            class="bg-asphalt-800 hover:bg-asphalt-700 active:scale-95 text-white font-semibold px-4 py-2.5 rounded-xl border border-asphalt-700 text-sm transition"
+          >
+            Gabung
+          </button>
+        </div>
+
+        <div id="peers-list" class="space-y-2 max-h-36 overflow-y-auto">
+          <div
+            id="empty-peers-msg"
+            class="text-center py-3 text-xs text-gray-500 border border-dashed border-asphalt-800 rounded-xl"
+          >
+            Belum ada rider terhubung. Bagikan ID Anda atau masukkan ID teman.
+          </div>
+        </div>
+      </section>
+
+      <section class="bg-asphalt-900 border border-asphalt-800 rounded-2xl p-3.5">
+        <div class="flex items-center justify-between mb-2">
+          <span class="text-xs font-bold uppercase tracking-wider text-gray-400">Sinyal Kilat (Ultra-Low Data)</span>
+          <span class="text-[10px] text-gray-500 font-mono">~32 Bytes/paket</span>
+        </div>
+        <div class="grid grid-cols-4 gap-2">
+          <button
+            onclick="sendTacticalBeacon('HAZARD', '⚠️ AWAS BAHAYA / LUBANG!')"
+            class="bg-amber-500/15 hover:bg-amber-500/25 active:scale-95 border border-amber-500/40 rounded-xl py-2.5 px-1 flex flex-col items-center justify-center gap-1 transition"
+          >
+            <span class="text-lg">⚠️</span>
+            <span class="text-[10px] font-bold text-amber-400">BAHAYA</span>
+          </button>
+          <button
+            onclick="sendTacticalBeacon('FUEL', '⛽ BUTUH ISI BENSIN')"
+            class="bg-blue-500/15 hover:bg-blue-500/25 active:scale-95 border border-blue-500/40 rounded-xl py-2.5 px-1 flex flex-col items-center justify-center gap-1 transition"
+          >
+            <span class="text-lg">⛽</span>
+            <span class="text-[10px] font-bold text-blue-400">BENSIN</span>
+          </button>
+          <button
+            onclick="sendTacticalBeacon('STOP', '🛑 MENEPI / ISTIRAHAT')"
+            class="bg-emerald-500/15 hover:bg-emerald-500/25 active:scale-95 border border-emerald-500/40 rounded-xl py-2.5 px-1 flex flex-col items-center justify-center gap-1 transition"
+          >
+            <span class="text-lg">🛑</span>
+            <span class="text-[10px] font-bold text-emerald-400">MENEPI</span>
+          </button>
+          <button
+            onclick="sendTacticalBeacon('SOS', '🚨 DARURAT / TROUBLE MOTOR!')"
+            class="bg-red-500/20 hover:bg-red-500/30 active:scale-95 border border-red-500/50 rounded-xl py-2.5 px-1 flex flex-col items-center justify-center gap-1 transition"
+          >
+            <span class="text-lg">🚨</span>
+            <span class="text-[10px] font-bold text-red-400">SOS</span>
+          </button>
+        </div>
+      </section>
+
+      <section
+        class="flex-1 bg-asphalt-900 border border-asphalt-800 rounded-2xl p-3 flex flex-col min-h-[110px]"
+      >
+        <div class="flex items-center justify-between mb-1.5">
+          <span class="text-[11px] font-bold uppercase tracking-wider text-gray-400">Log Transmisi & Jalur ICE</span>
+          <span id="audio-db-meter" class="text-[10px] font-mono text-gray-500">MIC: STANDBY</span>
+        </div>
+        <div
+          id="radio-log"
+          class="flex-1 overflow-y-auto space-y-1.5 text-xs font-mono pr-1 max-h-32"
+        >
+          <div class="text-gray-500">[SYS] Menunggu aktivasi perangkat...</div>
+        </div>
+      </section>
+
+    </main>
+
+    <footer
+      class="bg-asphalt-900 border-t border-asphalt-800 px-4 pt-3 pb-6 sticky bottom-0 z-30"
+    >
+      <div class="max-w-lg mx-auto flex flex-col items-center gap-3">
+        <div class="flex items-center justify-between w-full px-1">
+          <span class="text-xs text-gray-400 font-medium">Mode Transmisi:</span>
+          <div class="flex bg-asphalt-950 p-1 rounded-xl border border-asphalt-800">
+            <button
+              id="mode-ptt-btn"
+              class="px-3 py-1 rounded-lg text-xs font-bold bg-brand-orange text-white transition"
+            >Tahan (PTT)</button>
+            <button
+              id="mode-latch-btn"
+              class="px-3 py-1 rounded-lg text-xs font-bold text-gray-400 hover:text-white transition"
+            >Kunci Mic</button>
+          </div>
+        </div>
+
+        <div class="relative w-full">
+          <div
+            id="ptt-ring"
+            class="hidden absolute inset-0 rounded-2xl bg-brand-orange/30 pointer-events-none"
+          ></div>
+          <button
+            id="ptt-button"
+            class="relative w-full h-24 rounded-2xl bg-asphalt-800 border-2 border-asphalt-700 active:border-brand-orange flex flex-col items-center justify-center gap-1 shadow-xl transition-all duration-100 touch-none"
+          >
+            <div class="flex items-center gap-2.5">
+              <svg
+                id="mic-icon"
+                class="w-7 h-7 text-gray-300 transition-colors"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"
+                ></path>
+              </svg>
+              <span
+                id="ptt-label"
+                class="text-lg font-extrabold tracking-wide text-gray-200"
+              >TAHAN UNTUK BICARA</span>
+            </div>
+            <span id="ptt-sublabel" class="text-[11px] font-mono text-gray-400">Hemat kuota: 0 KB/s saat diam (DTX)</span>
+          </button>
+        </div>
+      </div>
+    </footer>
+
+    <div
+      id="toast-container"
+      class="fixed top-16 left-1/2 -translate-x-1/2 z-50 pointer-events-none w-full max-w-sm px-4 flex flex-col gap-2"
+    ></div>
+
+    <div
+      id="leave-modal"
+      class="hidden fixed inset-0 z-50 bg-asphalt-950/90 backdrop-blur-sm flex items-center justify-center p-4"
+    >
+      <div
+        class="w-full max-w-xs bg-asphalt-900 border border-asphalt-700 rounded-2xl p-5 shadow-2xl text-center"
+      >
+        <div
+          class="w-12 h-12 rounded-full bg-red-500/20 border border-red-500/40 text-red-400 flex items-center justify-center mx-auto mb-3"
+        >
+          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"
+            ></path></svg>
+        </div>
+        <h3 class="text-base font-extrabold text-white mb-1">Keluar Komunikasi?</h3>
+        <p class="text-xs text-gray-400 mb-4 leading-relaxed">
+          Koneksi radio dengan seluruh rombongan akan diputus dan sesi Anda akan diakhiri.
+        </p>
+        <div class="grid grid-cols-2 gap-2.5">
+          <button
+            id="cancel-leave-btn"
+            class="bg-asphalt-800 hover:bg-asphalt-700 text-gray-200 font-bold py-2.5 px-3 rounded-xl text-xs transition"
+          >
+            Batal
+          </button>
+          <button
+            id="confirm-leave-btn"
+            class="bg-red-600 hover:bg-red-700 text-white font-bold py-2.5 px-3 rounded-xl text-xs shadow-lg shadow-red-600/25 transition"
+          >
+            Ya, Leave
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div id="remote-audio-container" class="hidden"></div>
+
+    <script src="./index.js"></script>
+  </body>
+</html>

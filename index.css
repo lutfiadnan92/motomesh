@@ -1,0 +1,35 @@
+body {
+  background-color: #090b0e;
+  color: #f3f4f6;
+  overscroll-behavior-y: contain;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+}
+@keyframes pulse-ring {
+  0% {
+    transform: scale(0.95);
+    opacity: 0.8;
+  }
+  50% {
+    transform: scale(1.08);
+    opacity: 0.3;
+  }
+  100% {
+    transform: scale(0.95);
+    opacity: 0.8;
+  }
+}
+.ptt-active-ring {
+  animation: pulse-ring 1.2s infinite ease-in-out;
+}
+::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+::-webkit-scrollbar-track {
+  background: #11151c;
+}
+::-webkit-scrollbar-thumb {
+  background: #2d3748;
+  border-radius: 4px;
+}
