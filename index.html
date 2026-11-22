@@ -7,8 +7,16 @@
       content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
     >
     <title>MotoMesh - Low-Latency Touring Intercom</title>
+    <meta name="theme-color" content="#090b0e">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="MotoMesh">
+    <link rel="manifest" href="./manifest.json">
+    <link rel="apple-touch-icon" href="./icons/icon-192.png">
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
     <link
       href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap"
       rel="stylesheet"
@@ -42,10 +50,13 @@
     </script>
   </head>
   <body
+    x-data="motoMeshApp()"
     class="min-h-screen flex flex-col justify-between antialiased selection:bg-brand-orange selection:text-white"
   >
     <div
       id="setup-overlay"
+      x-show="setupOpen"
+      x-cloak
       class="fixed inset-0 z-50 bg-asphalt-950/95 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto"
     >
       <div
@@ -78,6 +89,7 @@
             <input
               type="text"
               id="rider-name-input"
+              x-model="callsignInput"
               maxlength="16"
               placeholder="Contoh: RIDER-01 / ANDI"
               class="w-full bg-asphalt-950 border border-asphalt-700 rounded-xl px-4 py-2.5 text-white font-mono text-sm focus:outline-none focus:border-brand-orange transition"
@@ -90,6 +102,7 @@
             >Profil Kompresi Jaringan</label>
             <select
               id="bandwidth-profile"
+              x-model="bitrateInput"
               class="w-full bg-asphalt-950 border border-asphalt-700 rounded-xl px-4 py-2.5 text-white text-sm focus:outline-none focus:border-brand-orange"
             >
               <option value="8000" selected>Sinyal Ekstrem / Gunung (8 kbps + FEC)</option>
@@ -112,6 +125,7 @@
               <button
                 type="button"
                 id="toggle-custom-turn-btn"
+                @click="customTurnOpen = !customTurnOpen"
                 class="text-[11px] font-mono text-brand-orange hover:underline"
               >
                 Kustomisasi
@@ -120,7 +134,9 @@
 
             <div
               id="custom-turn-panel"
-              class="hidden mt-3 pt-3 border-t border-asphalt-800 space-y-2"
+              x-show="customTurnOpen"
+              x-cloak
+              class="mt-3 pt-3 border-t border-asphalt-800 space-y-2"
             >
               <p class="text-[10px] text-gray-400 leading-relaxed">
                 Masukkan kredensial TURN gratis (misal dari <b>Metered.ca</b>) jika ingin menggunakan server pribadi, atau biarkan kosong untuk memakai TURN bawaan.
@@ -128,6 +144,7 @@
               <input
                 type="text"
                 id="turn-url-input"
+                x-model="turnUrl"
                 placeholder="turn:a.relay.metered.ca:80"
                 class="w-full bg-asphalt-900 border border-asphalt-700 rounded-lg px-3 py-1.5 text-xs font-mono text-white focus:outline-none focus:border-brand-orange"
               >
@@ -135,12 +152,14 @@
                 <input
                   type="text"
                   id="turn-user-input"
+                  x-model="turnUser"
                   placeholder="Username TURN"
                   class="w-full bg-asphalt-900 border border-asphalt-700 rounded-lg px-3 py-1.5 text-xs font-mono text-white focus:outline-none focus:border-brand-orange"
                 >
                 <input
                   type="password"
                   id="turn-pass-input"
+                  x-model="turnPass"
                   placeholder="Credential / Password"
                   class="w-full bg-asphalt-900 border border-asphalt-700 rounded-lg px-3 py-1.5 text-xs font-mono text-white focus:outline-none focus:border-brand-orange"
                 >
@@ -161,6 +180,7 @@
 
           <button
             id="start-system-btn"
+            @click="startSystem()"
             class="w-full bg-brand-orange hover:bg-orange-600 active:scale-[0.98] text-white font-bold py-3.5 px-4 rounded-xl shadow-lg shadow-brand-orange/25 transition flex items-center justify-center gap-2"
           >
             <span>AKTIFKAN RADIO TOURING</span>
@@ -200,6 +220,7 @@
         <div class="flex items-center gap-2">
           <button
             id="copy-id-btn"
+            @click="copyId()"
             class="bg-asphalt-950 hover:bg-asphalt-800 border border-asphalt-700 rounded-xl px-3 py-1.5 text-right transition active:scale-95"
             title="Klik untuk menyalin ID"
           >
@@ -208,6 +229,7 @@
           </button>
           <button
             id="leave-session-btn"
+            @click="leaveModalOpen = true"
             class="bg-red-500/15 hover:bg-red-500/25 active:scale-95 border border-red-500/40 text-red-400 rounded-xl px-2.5 py-2 text-xs font-bold transition flex flex-col items-center justify-center"
             title="Keluar dari sesi komunikasi"
           >
@@ -226,7 +248,15 @@
     <main class="flex-1 max-w-lg w-full mx-auto px-4 py-4 flex flex-col gap-4">
       <section class="bg-asphalt-900 border border-asphalt-800 rounded-2xl p-3.5">
         <div class="flex items-center justify-between mb-2.5">
-          <h2 class="text-xs font-bold uppercase tracking-wider text-gray-400">Rombongan (<span id="peer-count">0</span>)</h2>
+          <div class="flex items-center gap-2">
+            <h2 class="text-xs font-bold uppercase tracking-wider text-gray-400">Rombongan (<span id="peer-count">0</span>)</h2>
+            <button
+              id="install-app-btn"
+              type="button"
+              hidden
+              class="bg-brand-orange/15 hover:bg-brand-orange/25 border border-brand-orange/40 text-brand-orange rounded-xl px-2.5 py-2 text-[10px] font-bold transition"
+            >INSTALL APP</button>
+          </div>
           <div class="flex items-center gap-1.5">
             <span
               id="wakelock-badge"
@@ -236,9 +266,10 @@
             </span>
             <button
               id="toggle-wind-filter"
-              class="text-[10px] font-mono px-2 py-1 rounded-lg bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 transition"
+              @click="toggleWindFilter()"
+              :class="windFilterEnabled ? 'text-[10px] font-mono px-2 py-1 rounded-lg bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 transition' : 'text-[10px] font-mono px-2 py-1 rounded-lg bg-asphalt-800 text-gray-400 border border-asphalt-700 transition'"
             >
-              ANGIN: ON
+              ANGIN: <span x-text="windFilterEnabled ? 'ON' : 'OFF'"></span>
             </button>
           </div>
         </div>
@@ -247,11 +278,14 @@
           <input
             type="text"
             id="target-peer-input"
+            x-model="targetPeerId"
+            @keydown.enter="connectPeer()"
             placeholder="Masukkan ID Rider teman..."
             class="flex-1 bg-asphalt-950 border border-asphalt-700 rounded-xl px-3 py-2.5 text-sm font-mono uppercase text-white placeholder-gray-600 focus:outline-none focus:border-brand-orange"
           >
           <button
             id="connect-peer-btn"
+            @click="connectPeer()"
             class="bg-asphalt-800 hover:bg-asphalt-700 active:scale-95 text-white font-semibold px-4 py-2.5 rounded-xl border border-asphalt-700 text-sm transition"
           >
             Gabung
@@ -275,28 +309,28 @@
         </div>
         <div class="grid grid-cols-4 gap-2">
           <button
-            onclick="sendTacticalBeacon('HAZARD', '⚠️ AWAS BAHAYA / LUBANG!')"
+            @click="sendBeacon('HAZARD', '⚠️ AWAS BAHAYA / LUBANG!')"
             class="bg-amber-500/15 hover:bg-amber-500/25 active:scale-95 border border-amber-500/40 rounded-xl py-2.5 px-1 flex flex-col items-center justify-center gap-1 transition"
           >
             <span class="text-lg">⚠️</span>
             <span class="text-[10px] font-bold text-amber-400">BAHAYA</span>
           </button>
           <button
-            onclick="sendTacticalBeacon('FUEL', '⛽ BUTUH ISI BENSIN')"
+            @click="sendBeacon('FUEL', '⛽ BUTUH ISI BENSIN')"
             class="bg-blue-500/15 hover:bg-blue-500/25 active:scale-95 border border-blue-500/40 rounded-xl py-2.5 px-1 flex flex-col items-center justify-center gap-1 transition"
           >
             <span class="text-lg">⛽</span>
             <span class="text-[10px] font-bold text-blue-400">BENSIN</span>
           </button>
           <button
-            onclick="sendTacticalBeacon('STOP', '🛑 MENEPI / ISTIRAHAT')"
+            @click="sendBeacon('STOP', '🛑 MENEPI / ISTIRAHAT')"
             class="bg-emerald-500/15 hover:bg-emerald-500/25 active:scale-95 border border-emerald-500/40 rounded-xl py-2.5 px-1 flex flex-col items-center justify-center gap-1 transition"
           >
             <span class="text-lg">🛑</span>
             <span class="text-[10px] font-bold text-emerald-400">MENEPI</span>
           </button>
           <button
-            onclick="sendTacticalBeacon('SOS', '🚨 DARURAT / TROUBLE MOTOR!')"
+            @click="sendBeacon('SOS', '🚨 DARURAT / TROUBLE MOTOR!')"
             class="bg-red-500/20 hover:bg-red-500/30 active:scale-95 border border-red-500/50 rounded-xl py-2.5 px-1 flex flex-col items-center justify-center gap-1 transition"
           >
             <span class="text-lg">🚨</span>
@@ -331,11 +365,13 @@
           <div class="flex bg-asphalt-950 p-1 rounded-xl border border-asphalt-800">
             <button
               id="mode-ptt-btn"
-              class="px-3 py-1 rounded-lg text-xs font-bold bg-brand-orange text-white transition"
+              @click="setMode(false)"
+              :class="!latchMode ? 'px-3 py-1 rounded-lg text-xs font-bold bg-brand-orange text-white transition' : 'px-3 py-1 rounded-lg text-xs font-bold text-gray-400 hover:text-white transition'"
             >Tahan (PTT)</button>
             <button
               id="mode-latch-btn"
-              class="px-3 py-1 rounded-lg text-xs font-bold text-gray-400 hover:text-white transition"
+              @click="setMode(true)"
+              :class="latchMode ? 'px-3 py-1 rounded-lg text-xs font-bold bg-brand-orange text-white transition' : 'px-3 py-1 rounded-lg text-xs font-bold text-gray-400 hover:text-white transition'"
             >Kunci Mic</button>
           </div>
         </div>
@@ -343,16 +379,20 @@
         <div class="relative w-full">
           <div
             id="ptt-ring"
-            class="hidden absolute inset-0 rounded-2xl bg-brand-orange/30 pointer-events-none"
+            :class="isTransmitting ? 'absolute inset-0 rounded-2xl bg-brand-orange/30 ptt-active-ring pointer-events-none' : 'hidden absolute inset-0 rounded-2xl bg-brand-orange/30 pointer-events-none'"
           ></div>
           <button
             id="ptt-button"
-            class="relative w-full h-24 rounded-2xl bg-asphalt-800 border-2 border-asphalt-700 active:border-brand-orange flex flex-col items-center justify-center gap-1 shadow-xl transition-all duration-100 touch-none"
+            @pointerdown.prevent="pressPtt()"
+            @pointerup.window="releasePtt()"
+            @pointercancel.window="releasePtt()"
+            @pointerleave="releasePtt()"
+            :class="isTransmitting ? 'relative w-full h-24 rounded-2xl bg-brand-orange border-2 border-orange-300 scale-[0.99] flex flex-col items-center justify-center gap-1 shadow-xl transition-all duration-100 touch-none' : 'relative w-full h-24 rounded-2xl bg-asphalt-800 border-2 border-asphalt-700 active:border-brand-orange flex flex-col items-center justify-center gap-1 shadow-xl transition-all duration-100 touch-none'"
           >
             <div class="flex items-center gap-2.5">
               <svg
                 id="mic-icon"
-                class="w-7 h-7 text-gray-300 transition-colors"
+                :class="isTransmitting ? 'w-7 h-7 text-white transition-colors' : 'w-7 h-7 text-gray-300 transition-colors'"
                 fill="none"
                 stroke="currentColor"
                 viewBox="0 0 24 24"
@@ -366,10 +406,17 @@
               </svg>
               <span
                 id="ptt-label"
-                class="text-lg font-extrabold tracking-wide text-gray-200"
-              >TAHAN UNTUK BICARA</span>
+                class="text-lg font-extrabold tracking-wide"
+                :class="isTransmitting ? 'text-white' : 'text-gray-200'"
+                x-text="isTransmitting ? 'MENGUDARA (ON AIR)...' : (latchMode ? 'KETUK UNTUK KUNCI MIC' : 'TAHAN UNTUK BICARA')"
+              ></span>
             </div>
-            <span id="ptt-sublabel" class="text-[11px] font-mono text-gray-400">Hemat kuota: 0 KB/s saat diam (DTX)</span>
+            <span
+              id="ptt-sublabel"
+              class="text-[11px] font-mono"
+              :class="isTransmitting ? 'text-orange-100' : 'text-gray-400'"
+              x-text="isTransmitting ? `Mengirim suara terkompresi (${Number(bitrateInput) / 1000} kbps Opus)` : 'Hemat kuota: 0 KB/s saat diam (DTX)'"
+            ></span>
           </button>
         </div>
       </div>
@@ -382,7 +429,9 @@
 
     <div
       id="leave-modal"
-      class="hidden fixed inset-0 z-50 bg-asphalt-950/90 backdrop-blur-sm flex items-center justify-center p-4"
+      x-show="leaveModalOpen"
+      x-cloak
+      class=" fixed inset-0 z-50 bg-asphalt-950/90 backdrop-blur-sm flex items-center justify-center p-4"
     >
       <div
         class="w-full max-w-xs bg-asphalt-900 border border-asphalt-700 rounded-2xl p-5 shadow-2xl text-center"
@@ -404,12 +453,14 @@
         <div class="grid grid-cols-2 gap-2.5">
           <button
             id="cancel-leave-btn"
+            @click="leaveModalOpen = false"
             class="bg-asphalt-800 hover:bg-asphalt-700 text-gray-200 font-bold py-2.5 px-3 rounded-xl text-xs transition"
           >
             Batal
           </button>
           <button
             id="confirm-leave-btn"
+            @click="confirmLeave()"
             class="bg-red-600 hover:bg-red-700 text-white font-bold py-2.5 px-3 rounded-xl text-xs shadow-lg shadow-red-600/25 transition"
           >
             Ya, Leave
@@ -420,6 +471,7 @@
 
     <div id="remote-audio-container" class="hidden"></div>
 
+    <script src="./pwa.js"></script>
     <script src="./index.js"></script>
   </body>
 </html>
