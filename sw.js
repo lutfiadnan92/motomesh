@@ -1,4 +1,4 @@
-const CACHE_NAME = "motomesh-pwa-v1";
+const CACHE_NAME = "motomesh-pwa-v2";
 const APP_SHELL = [
   "./",
   "./index.html",
@@ -7,24 +7,40 @@ const APP_SHELL = [
   "./pwa.js",
   "./manifest.json",
   "./icons/icon-192.png",
-  "./icons/icon-512.png"
+  "./icons/icon-512.png",
 ];
+
+async function safeCachePut(key, response) {
+  try {
+    if (!response || !(response.ok || response.type === "opaque")) return;
+
+    const cache = await caches.open(CACHE_NAME);
+
+    await cache.put(key, response);
+  } catch (error) {
+    console.warn("[MotoMesh SW] Cache write dilewati:", error);
+  }
+}
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME)
+    caches
+      .open(CACHE_NAME)
       .then((cache) => cache.addAll(APP_SHELL))
-      .then(() => self.skipWaiting())
+      .then(() => self.skipWaiting()),
   );
 });
 
 self.addEventListener("activate", (event) => {
   event.waitUntil(
-    caches.keys()
-      .then((keys) => Promise.all(
-        keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key))
-      ))
-      .then(() => self.clients.claim())
+    caches
+      .keys()
+      .then((keys) =>
+        Promise.all(
+          keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key)),
+        ),
+      )
+      .then(() => self.clients.claim()),
   );
 });
 
@@ -32,17 +48,24 @@ self.addEventListener("fetch", (event) => {
   const request = event.request;
   if (request.method !== "GET") return;
 
-  const url = new URL(request.url);
+  let url;
+  try {
+    url = new URL(request.url);
+  } catch (error) {
+    return;
+  }
+
+  // Extension, data, blob, and other non-web schemes are not Cache API requests.
+  if (url.protocol !== "http:" && url.protocol !== "https:") return;
 
   if (request.mode === "navigate") {
     event.respondWith(
       fetch(request)
         .then((response) => {
-          const copy = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put("./index.html", copy));
+          event.waitUntil(safeCachePut("./index.html", response.clone()));
           return response;
         })
-        .catch(async () => (await caches.match("./index.html")) || Response.error())
+        .catch(async () => (await caches.match("./index.html")) || Response.error()),
     );
     return;
   }
@@ -50,26 +73,30 @@ self.addEventListener("fetch", (event) => {
   if (url.origin === self.location.origin) {
     event.respondWith(
       caches.match(request).then((cached) => {
-        const fresh = fetch(request).then((response) => {
-          if (response.ok) {
-            const copy = response.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));
-          }
-          return response;
-        }).catch(() => cached);
+        const fresh = fetch(request)
+          .then((response) => {
+            if (response.ok) {
+              event.waitUntil(safeCachePut(request, response.clone()));
+            }
+            return response;
+          })
+          .catch(() => cached);
         return cached || fresh;
-      })
+      }),
     );
     return;
   }
 
   event.respondWith(
-    caches.match(request).then((cached) => cached || fetch(request).then((response) => {
-      if (response && (response.ok || response.type === "opaque")) {
-        const copy = response.clone();
-        caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));
-      }
-      return response;
-    }))
+    caches.match(request).then(
+      (cached) =>
+        cached ||
+        fetch(request).then((response) => {
+          if (response && (response.ok || response.type === "opaque")) {
+            event.waitUntil(safeCachePut(request, response.clone()));
+          }
+          return response;
+        }),
+    ),
   );
 });

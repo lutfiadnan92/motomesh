@@ -1,14 +1,14 @@
 (() => {
   const installButton = document.getElementById("install-app-btn");
   let installPrompt = null;
-  
+
   const isStandalone = () =>
     window.matchMedia("(display-mode: standalone)").matches ||
     window.matchMedia("(display-mode: fullscreen)").matches ||
     navigator.standalone === true;
 
   const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
-  
+
   const updateInstallButton = () => {
     if (!installButton) return;
 
@@ -37,23 +37,27 @@
       installPrompt.prompt();
 
       const result = await installPrompt.userChoice;
-      
+
       if (result.outcome === "accepted") {
         installButton.hidden = true;
       }
-      
+
       installPrompt = null;
-      
+
       return;
     }
 
-    if (isIOS()) {
-      alert('Untuk memasang MotoMesh: tekan tombol Share di browser, lalu pilih "Add to Home Screen" / "Tambahkan ke Layar Utama".');
+    if (isIOS) {
+      alert(
+        'Untuk memasang MotoMesh: tekan tombol Share di browser, lalu pilih "Add to Home Screen" / "Tambahkan ke Layar Utama".',
+      );
     }
   });
 
   updateInstallButton();
-  window.matchMedia("(display-mode: standalone)").addEventListener?.("change", updateInstallButton);
+  window
+    .matchMedia("(display-mode: standalone)")
+    .addEventListener?.("change", updateInstallButton);
 
   if ("serviceWorker" in navigator) {
     window.addEventListener("load", () => {

@@ -1,9 +1,12 @@
 const SESSION_KEY = "motomesh_active_session";
+const MAX_CALLSIGN_LENGTH = 16;
+const DEFAULT_BITRATE = 14000;
 const state = {
   peer: null,
+  active: false,
   myId: "",
   callsign: "RIDER",
-  bitrate: 8000,
+  bitrate: DEFAULT_BITRATE,
   rawStream: null,
   processedStream: null,
   audioCtx: null,
@@ -16,10 +19,20 @@ const state = {
   localBus: null,
   wakeLock: null,
   heartbeatTimer: null,
+  leaving: false,
   connections: new Map(),
   savedPeers: new Set(),
   offlineQueue: [],
+  outputDeviceId: localStorage.getItem("motomesh_output_device") || "",
 };
+const HTML_ESCAPES = {
+  "&": "&amp;",
+  "<": "&lt;",
+  ">": "&gt;",
+  '"': "&quot;",
+  "'": "&#39;",
+};
+const escapeHtml = (value) => String(value).replace(/[&<>"']/g, (ch) => HTML_ESCAPES[ch]);
 
 function buildIceServersConfig() {
   const servers = [
@@ -63,11 +76,19 @@ async function requestScreenWakeLock() {
 
   if ("wakeLock" in navigator) {
     try {
-      state.wakeLock = await navigator.wakeLock.request("screen");
+      const lock = await navigator.wakeLock.request("screen");
+
+      // Leave bisa terjadi selagi permintaan menunggu
+      if (!state.active) {
+        lock.release().catch(() => {});
+        return;
+      }
+
+      state.wakeLock = lock;
       badge.textContent = "LAYAR: AKTIF";
       badge.className =
         "text-[10px] font-mono px-2 py-1 rounded-lg bg-amber-500/15 text-amber-400 border border-amber-500/30";
-      state.wakeLock.addEventListener("release", () => {
+      lock.addEventListener("release", () => {
         badge.textContent = "LAYAR: NORMAL";
         badge.className =
           "text-[10px] font-mono px-2 py-1 rounded-lg bg-asphalt-800 text-gray-400 border border-asphalt-700";
@@ -79,12 +100,14 @@ async function requestScreenWakeLock() {
 }
 
 document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState === "visible" && getSavedSession()) {
+  if (document.visibilityState === "visible" && state.active) {
     requestScreenWakeLock();
   }
 });
 
 function saveActiveSession() {
+  if (!state.active) return;
+
   try {
     const sessionData = {
       active: true,
@@ -120,77 +143,147 @@ function clearActiveSession() {
   } catch (e) {}
 }
 
-window.addEventListener("DOMContentLoaded", async () => {
+async function refreshAudioOutputs() {
+  const select = document.getElementById("audio-output-select");
+
+  if (!select || !navigator.mediaDevices?.enumerateDevices) return;
+
+  const previous = state.outputDeviceId;
+
   try {
-    const savedUrl = localStorage.getItem("motomesh_turn_url");
-    const savedUser = localStorage.getItem("motomesh_turn_user");
-    const savedPass = localStorage.getItem("motomesh_turn_pass");
-    const savedName = localStorage.getItem("motomesh_callsign");
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const outputs = devices.filter((device) => device.kind === "audiooutput");
+    select.replaceChildren(new Option("Otomatis (perangkat sistem)", ""));
 
-    if (savedName) document.getElementById("rider-name-input").value = savedName;
+    outputs.forEach((device, index) => {
+      select.add(new Option(device.label || `Speaker ${index + 1}`, device.deviceId));
+    });
 
-    if (savedUrl) {
-      document.getElementById("turn-url-input").value = savedUrl;
-      document.getElementById("turn-user-input").value = savedUser || "";
-      document.getElementById("turn-pass-input").value = savedPass || "";
+    const stillAvailable =
+      !previous || outputs.some((device) => device.deviceId === previous);
+
+    if (!stillAvailable) {
+      state.outputDeviceId = "";
+      localStorage.removeItem("motomesh_output_device");
     }
+
+    select.value = state.outputDeviceId;
+
+    await applyAudioOutput(state.outputDeviceId, false);
+  } catch (error) {
+    document.getElementById("audio-output-status").textContent =
+      "Daftar perangkat audio tidak dapat dibaca oleh browser ini.";
+  }
+}
+
+async function applyAudioOutput(deviceId = "", notify = true) {
+  state.outputDeviceId = deviceId;
+
+  try {
+    if (deviceId) localStorage.setItem("motomesh_output_device", deviceId);
+    else localStorage.removeItem("motomesh_output_device");
   } catch (e) {}
+
+  const status = document.getElementById("audio-output-status");
+  const audioElements = document.querySelectorAll("#remote-audio-container audio");
+  let mediaSupported = true;
+
+  for (const audio of audioElements) {
+    if (typeof audio.setSinkId === "function") {
+      try {
+        await audio.setSinkId(deviceId);
+      } catch (e) {}
+    } else if (deviceId) {
+      mediaSupported = false;
+    }
+  }
+
+  let contextSupported = true;
+
+  if (state.audioCtx) {
+    if (typeof state.audioCtx.setSinkId === "function") {
+      try {
+        await state.audioCtx.setSinkId(deviceId);
+      } catch (e) {
+        contextSupported = false;
+      }
+    } else if (deviceId) {
+      contextSupported = false;
+    }
+  }
+
+  if (status) {
+    if (!deviceId) {
+      status.textContent =
+        "Otomatis mengikuti keluaran audio sistem. Headset Bluetooth/kabel akan dipakai saat dipilih oleh sistem operasi.";
+    } else if (mediaSupported && contextSupported) {
+      status.textContent = "Keluaran audio diarahkan ke perangkat yang dipilih.";
+    } else {
+      status.textContent =
+        "Browser membatasi pemilihan output manual. Gunakan mode Otomatis agar mengikuti headset dari sistem.";
+    }
+  }
+  if (notify)
+    showToast(
+      deviceId
+        ? "Keluaran audio diperbarui."
+        : "Keluaran audio mengikuti perangkat sistem.",
+      "success",
+    );
+}
+
+window.addEventListener("DOMContentLoaded", async () => {
+  const outputSelect = document.getElementById("audio-output-select");
+
+  if (outputSelect) {
+    outputSelect.addEventListener("change", (event) =>
+      applyAudioOutput(event.target.value),
+    );
+    await refreshAudioOutputs();
+    navigator.mediaDevices?.addEventListener?.("devicechange", refreshAudioOutputs);
+  }
 
   const activeSession = getSavedSession();
 
-  if (activeSession) {
-    state.myId = activeSession.myId || generateShortId();
-    state.callsign = activeSession.callsign || "RIDER";
-    state.bitrate = activeSession.bitrate || 8000;
-    state.windFilterEnabled =
-      activeSession.windFilterEnabled !== undefined
-        ? activeSession.windFilterEnabled
-        : true;
-    state.latchMode = !!activeSession.latchMode;
+  if (!activeSession) return;
 
-    if (Array.isArray(activeSession.peers)) {
-      activeSession.peers.forEach((p) => state.savedPeers.add(p));
-    }
+  // Tampilan tombol (ANGIN, mode PTT) dikelola Alpine dari getSavedSession()
+  state.active = true;
+  state.myId = activeSession.myId || generateShortId();
+  state.callsign = activeSession.callsign || "RIDER";
+  state.bitrate = activeSession.bitrate || DEFAULT_BITRATE;
+  state.windFilterEnabled = activeSession.windFilterEnabled ?? true;
+  state.latchMode = !!activeSession.latchMode;
 
-    document.getElementById("rider-name-input").value = state.callsign;
-    document.getElementById("bandwidth-profile").value = String(state.bitrate);
-    document.getElementById("network-mode-badge").textContent =
-      `${state.bitrate / 1000}K FEC`;
-    document.getElementById("setup-overlay").classList.add("hidden");
-
-    const windBtn = document.getElementById("toggle-wind-filter");
-    windBtn.textContent = `ANGIN: ${state.windFilterEnabled ? "ON" : "OFF"}`;
-    windBtn.className = state.windFilterEnabled
-      ? "text-[10px] font-mono px-2 py-1 rounded-lg bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 transition"
-      : "text-[10px] font-mono px-2 py-1 rounded-lg bg-asphalt-800 text-gray-400 border border-asphalt-700 transition";
-
-    if (state.latchMode) {
-      document.getElementById("mode-latch-btn").className =
-        "px-3 py-1 rounded-lg text-xs font-bold bg-brand-orange text-white transition";
-      document.getElementById("mode-ptt-btn").className =
-        "px-3 py-1 rounded-lg text-xs font-bold text-gray-400 hover:text-white transition";
-    }
-
-    await requestScreenWakeLock();
-    await initAudioPipeline();
-
-    if (state.filterNode) {
-      state.filterNode.frequency.value = state.windFilterEnabled ? 300 : 20;
-    }
-
-    initPeerNetwork(state.myId);
-    startHeartbeatMonitor();
-    logRadio(
-      `[RESUME] Sesi dipulihkan otomatis setelah refresh (${state.callsign})`,
-      "text-emerald-400",
-    );
-    showToast("Sesi komunikasi dipulihkan otomatis!", "success");
+  if (Array.isArray(activeSession.peers)) {
+    activeSession.peers.forEach((p) => state.savedPeers.add(p));
   }
+
+  document.getElementById("my-callsign").textContent = state.callsign;
+  document.getElementById("network-mode-badge").textContent =
+    `${state.bitrate / 1000}K FEC`;
+
+  await requestScreenWakeLock();
+  await initAudioPipeline();
+
+  // Leave bisa terjadi selagi menunggu izin mikrofon
+  if (!state.active) return;
+
+  if (state.filterNode) {
+    state.filterNode.frequency.value = state.windFilterEnabled ? 300 : 20;
+  }
+
+  initPeerNetwork(state.myId);
+  startHeartbeatMonitor();
+  logRadio(
+    `[RESUME] Sesi dipulihkan otomatis setelah refresh (${state.callsign})`,
+    "text-emerald-400",
+  );
+  showToast("Sesi komunikasi dipulihkan otomatis!", "success");
 });
 
 function generateShortId() {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-
   let res = "MT-";
 
   for (let i = 0; i < 4; i++) {
@@ -279,14 +372,21 @@ async function initAudioPipeline() {
     state.rawStream = dest.stream;
   }
 
-  state.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-  const source = state.audioCtx.createMediaStreamSource(state.rawStream);
-  const compressor = state.audioCtx.createDynamicsCompressor();
-  const destination = state.audioCtx.createMediaStreamDestination();
+  // Leave bisa terjadi saat prompt izin mikrofon masih terbuka; jangan biarkan mic menyala.
+  if (!state.active) {
+    state.rawStream.getTracks().forEach((track) => track.stop());
+    state.rawStream = null;
+    return;
+  }
 
+  state.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  await applyAudioOutput(state.outputDeviceId, false);
+  const source = state.audioCtx.createMediaStreamSource(state.rawStream);
   state.filterNode = state.audioCtx.createBiquadFilter();
   state.filterNode.type = "highpass";
   state.filterNode.frequency.value = 300;
+
+  const compressor = state.audioCtx.createDynamicsCompressor();
   compressor.threshold.value = -24;
   compressor.knee.value = 30;
   compressor.ratio.value = 12;
@@ -295,13 +395,12 @@ async function initAudioPipeline() {
   state.gainNode = state.audioCtx.createGain();
   state.gainNode.gain.value = 0;
 
+  const destination = state.audioCtx.createMediaStreamDestination();
   source.connect(state.filterNode);
   state.filterNode.connect(compressor);
   compressor.connect(state.gainNode);
   state.gainNode.connect(destination);
-
   state.processedStream = destination.stream;
-
   setTransmissionState(false);
 }
 
@@ -313,20 +412,33 @@ function optimizeOpusSDP(sdp, maxBitrate) {
 
 function inspectConnectionRoute(pc, remoteId) {
   if (!pc || typeof pc.getStats !== "function") return;
+  if (pc.__motoMeshRouteCheck) return;
 
-  setTimeout(async () => {
+  let attempts = 0;
+  const maxAttempts = 20;
+  const checkRoute = async () => {
+    if (pc.connectionState === "closed" || pc.iceConnectionState === "closed") {
+      pc.__motoMeshRouteCheck = null;
+      return;
+    }
+
     try {
       const stats = await pc.getStats();
-      let activePair = null;
       const candidates = new Map();
+      let activePair = null;
 
       stats.forEach((report) => {
         if (report.type === "local-candidate" || report.type === "remote-candidate") {
           candidates.set(report.id, report);
         }
 
-        if (report.type === "candidate-pair" && report.state === "succeeded") {
-          activePair = report;
+        if (
+          report.type === "candidate-pair" &&
+          (report.selected === true ||
+            report.nominated === true ||
+            report.state === "succeeded")
+        ) {
+          if (!activePair || report.selected || report.nominated) activePair = report;
         }
       });
 
@@ -334,8 +446,7 @@ function inspectConnectionRoute(pc, remoteId) {
         const localCand = candidates.get(activePair.localCandidateId);
         const remoteCand = candidates.get(activePair.remoteCandidateId);
         const isRelayed =
-          (localCand && localCand.candidateType === "relay") ||
-          (remoteCand && remoteCand.candidateType === "relay");
+          localCand?.candidateType === "relay" || remoteCand?.candidateType === "relay";
         const routeLabel = isRelayed ? "TURN RELAY" : "P2P DIRECT";
         const peerInfo = state.connections.get(remoteId);
 
@@ -347,12 +458,32 @@ function inspectConnectionRoute(pc, remoteId) {
             isRelayed ? "text-amber-400" : "text-emerald-400",
           );
         }
+        pc.__motoMeshRouteCheck = null;
+        return;
       }
     } catch (e) {}
-  }, 1500);
+
+    attempts += 1;
+
+    if (attempts < maxAttempts) {
+      pc.__motoMeshRouteCheck = setTimeout(checkRoute, 1500);
+    } else {
+      pc.__motoMeshRouteCheck = null;
+      if (pc.iceConnectionState === "failed") {
+        logRadio(
+          `[ROUTE] ICE gagal tersambung ke ${remoteId}. Periksa STUN/TURN atau jaringan.`,
+          "text-red-400",
+        );
+      }
+    }
+  };
+
+  pc.__motoMeshRouteCheck = setTimeout(checkRoute, 500);
 }
 
 function initPeerNetwork(preferredId = null) {
+  if (!state.active) return;
+
   const desiredId = preferredId || state.myId || generateShortId();
   const iceServers = buildIceServersConfig();
 
@@ -409,7 +540,7 @@ function initPeerNetwork(preferredId = null) {
   });
 
   state.peer.on("disconnected", () => {
-    if (state.sandboxMode || !getSavedSession()) return;
+    if (!state.active || state.leaving || state.sandboxMode) return;
 
     updateConnectionStatus("Sinyal Terputus - Reconnect...", "bg-red-500 animate-ping");
     logRadio("[WARN] Koneksi signaling terputus. Menyambung ulang...", "text-amber-400");
@@ -421,6 +552,8 @@ function initPeerNetwork(preferredId = null) {
   });
 
   state.peer.on("error", (err) => {
+    if (!state.active) return;
+
     if (err.type === "unavailable-id") {
       state.peer.destroy();
       initPeerNetwork(generateShortId());
@@ -439,9 +572,8 @@ function initPeerNetwork(preferredId = null) {
   });
 }
 
-// Fallback Mode saat berada di sandbox pratinjau
 function activateSandboxMeshFallback(id) {
-  if (state.sandboxMode) return;
+  if (!state.active || state.sandboxMode) return;
 
   state.sandboxMode = true;
   state.myId = id;
@@ -515,23 +647,20 @@ function setupLocalAudioBridge() {
 
   try {
     const scriptNode = state.audioCtx.createScriptProcessor(2048, 1, 1);
-
     state.gainNode.connect(scriptNode);
     scriptNode.connect(state.audioCtx.destination);
+
     scriptNode.onaudioprocess = (e) => {
       const out = e.outputBuffer.getChannelData(0);
       out.fill(0);
 
       if (!state.isTransmitting || state.connections.size === 0 || !state.localBus)
         return;
-
       const input = e.inputBuffer.getChannelData(0);
       const quantized = new Int8Array(input.length);
-
       for (let i = 0; i < input.length; i++) {
         quantized[i] = Math.max(-127, Math.min(127, Math.round(input[i] * 127)));
       }
-
       state.localBus.postMessage({
         type: "LOCAL_AUDIO_CHUNK",
         sender: state.myId,
@@ -572,7 +701,7 @@ window.addEventListener("unhandledrejection", (event) => {
     (event.reason.name === "SecurityError" || String(event.reason).includes("WebSocket"))
   ) {
     event.preventDefault();
-    activateSandboxMeshFallback(state.myId || generateShortId());
+    if (state.active) activateSandboxMeshFallback(state.myId || generateShortId());
   }
 });
 
@@ -625,13 +754,14 @@ function connectToRider(targetId, isAutoReconnect = false) {
 function handlePeerLeft(remoteId) {
   const info = state.connections.get(remoteId);
   const name = info ? info.callsign : remoteId;
-  const audioEl = document.getElementById(`audio-${remoteId}`);
-
-  if (audioEl) audioEl.remove();
 
   state.connections.delete(remoteId);
   state.savedPeers.delete(remoteId);
   saveActiveSession();
+
+  const audioEl = document.getElementById(`audio-${remoteId}`);
+
+  if (audioEl) audioEl.remove();
 
   renderPeersList();
   logRadio(`[LEAVE] ${name} keluar dari sesi komunikasi.`, "text-amber-400");
@@ -716,6 +846,10 @@ function setupMediaCall(call) {
       document.getElementById("remote-audio-container").appendChild(audioEl);
     }
 
+    if (typeof audioEl.setSinkId === "function") {
+      audioEl.setSinkId(state.outputDeviceId).catch(() => {});
+    }
+
     audioEl.srcObject = remoteStream;
     audioEl.play().catch(() => {
       logRadio("[AUDIO] Ketuk layar untuk mengaktifkan suara masuk.", "text-amber-400");
@@ -730,9 +864,7 @@ function setupMediaCall(call) {
 
 function setTransmissionState(active) {
   state.isTransmitting = active;
-  const app = window.Alpine?.$data(document.body);
-
-  if (app) app.isTransmitting = active;
+  window.dispatchEvent(new CustomEvent("ptt-change", { detail: active }));
 
   if (state.audioCtx && state.audioCtx.state === "suspended") {
     state.audioCtx.resume();
@@ -821,7 +953,7 @@ function handleIncomingData(remoteId, data) {
   if (!peerInfo) return;
 
   if (data.type === "HELLO") {
-    peerInfo.callsign = data.callsign || remoteId;
+    peerInfo.callsign = String(data.callsign || remoteId).slice(0, MAX_CALLSIGN_LENGTH);
     renderPeersList();
 
     if (Array.isArray(data.peers)) {
@@ -869,76 +1001,136 @@ function handleIncomingData(remoteId, data) {
 }
 
 function leaveCommunicationSession() {
-  setTransmissionState(false);
+  if (state.leaving) return;
 
-  if (state.heartbeatTimer) {
-    clearInterval(state.heartbeatTimer);
-    state.heartbeatTimer = null;
-  }
-
-  state.connections.forEach((info, peerId) => {
-    if (info.isLocalBus && state.localBus) {
-      state.localBus.postMessage({
-        type: "LOCAL_LEAVE",
-        sender: state.myId,
-        target: peerId,
-      });
-    } else if (info.dataConn && info.dataConn.open) {
-      try {
-        info.dataConn.send({ type: "LEAVE" });
-      } catch (e) {}
-
-      try {
-        info.dataConn.close();
-      } catch (e) {}
-    }
-    if (info.mediaCall) {
-      try {
-        info.mediaCall.close();
-      } catch (e) {}
-    }
-  });
-
-  state.connections.clear();
-  state.savedPeers.clear();
-  state.offlineQueue = [];
+  state.leaving = true;
+  state.active = false;
   clearActiveSession();
 
-  if (state.rawStream) {
-    state.rawStream.getTracks().forEach((t) => t.stop());
+  try {
+    try {
+      setTransmissionState(false);
+    } catch (e) {}
+
+    if (state.heartbeatTimer) {
+      clearInterval(state.heartbeatTimer);
+      state.heartbeatTimer = null;
+    }
+
+    for (const [peerId, info] of Array.from(state.connections.entries())) {
+      try {
+        if (info.isLocalBus && state.localBus) {
+          state.localBus.postMessage({
+            type: "LOCAL_LEAVE",
+            sender: state.myId,
+            target: peerId,
+          });
+        } else if (info.dataConn) {
+          if (info.dataConn.open) {
+            try {
+              info.dataConn.send({ type: "LEAVE" });
+            } catch (e) {}
+          }
+          try {
+            info.dataConn.close();
+          } catch (e) {}
+        }
+      } catch (e) {}
+
+      try {
+        if (info.mediaCall) {
+          const pc = info.mediaCall.peerConnection;
+          if (pc && pc.__motoMeshRouteCheck) {
+            clearTimeout(pc.__motoMeshRouteCheck);
+            pc.__motoMeshRouteCheck = null;
+          }
+          info.mediaCall.close();
+        }
+      } catch (e) {}
+    }
+
+    state.connections.clear();
+    state.savedPeers.clear();
+    state.offlineQueue = [];
+
+    for (const stream of [state.rawStream, state.processedStream]) {
+      try {
+        stream?.getTracks?.().forEach((track) => track.stop());
+      } catch (e) {}
+    }
+
     state.rawStream = null;
-  }
+    state.processedStream = null;
+    state.gainNode = null;
+    state.filterNode = null;
 
-  if (state.audioCtx) {
-    state.audioCtx.close().catch(() => {});
-    state.audioCtx = null;
-  }
+    if (state.audioCtx) {
+      try {
+        const closingContext = state.audioCtx;
+        if (closingContext.state !== "closed") {
+          Promise.resolve(closingContext.close()).catch(() => {});
+        }
+      } catch (e) {}
+      state.audioCtx = null;
+    }
 
-  if (state.localBus) {
-    state.localBus.close();
-    state.localBus = null;
-  }
+    if (state.localBus) {
+      try {
+        state.localBus.onmessage = null;
+        state.localBus.close();
+      } catch (e) {}
+      state.localBus = null;
+    }
 
-  if (state.peer && !state.peer.destroyed) {
-    state.peer.destroy();
-    state.peer = null;
-  }
+    if (state.peer) {
+      const peer = state.peer;
+      state.peer = null;
+      try {
+        if (!peer.destroyed) peer.destroy();
+      } catch (e) {}
+    }
 
-  if (state.wakeLock) {
-    state.wakeLock.release().catch(() => {});
-    state.wakeLock = null;
-  }
+    if (state.wakeLock) {
+      try {
+        Promise.resolve(state.wakeLock.release()).catch(() => {});
+      } catch (e) {}
+      state.wakeLock = null;
+    }
 
-  state.sandboxMode = false;
-  state.myId = "";
-  document.getElementById("remote-audio-container").innerHTML = "";
-  document.getElementById("my-peer-id").textContent = "------";
-  document.getElementById("radio-log").innerHTML =
-    '<div class="text-gray-500">[SYS] Anda telah keluar dari sesi komunikasi.</div>';
-  renderPeersList();
-  document.getElementById("leave-modal").classList.add("hidden");
-  document.getElementById("setup-overlay").classList.remove("hidden");
-  showToast("Anda telah keluar dari komunikasi.");
+    state.sandboxMode = false;
+    state.myId = "";
+    state.isTransmitting = false;
+
+    const audioContainer = document.getElementById("remote-audio-container");
+    if (audioContainer) audioContainer.replaceChildren();
+
+    const peerIdElement = document.getElementById("my-peer-id");
+    if (peerIdElement) peerIdElement.textContent = "------";
+
+    const callsignElement = document.getElementById("my-callsign");
+    if (callsignElement) callsignElement.textContent = "BELUM AKTIF";
+
+    const radioLog = document.getElementById("radio-log");
+    if (radioLog) {
+      radioLog.textContent = "";
+      const row = document.createElement("div");
+      row.className = "text-gray-500";
+      row.textContent = "[SYS] Anda telah keluar dari sesi komunikasi.";
+      radioLog.appendChild(row);
+    }
+
+    try {
+      renderPeersList();
+    } catch (e) {}
+
+    updateConnectionStatus("Radio tidak aktif", "bg-gray-500");
+  } catch (error) {
+    console.error("[MotoMesh] Kesalahan saat Leave:", error);
+    logRadio("[WARN] Sesi dihentikan dengan pembersihan darurat.", "text-amber-400");
+  } finally {
+    state.leaving = false;
+    showToast("Anda telah keluar dari komunikasi.");
+  }
 }
 
 function startHeartbeatMonitor() {
@@ -946,7 +1138,6 @@ function startHeartbeatMonitor() {
 
   state.heartbeatTimer = setInterval(() => {
     const now = Date.now();
-
     state.connections.forEach((info, peerId) => {
       if (info.isLocalBus && state.localBus) {
         state.localBus.postMessage({
@@ -979,7 +1170,6 @@ function renderPeersList() {
   listEl.innerHTML = "";
   state.connections.forEach((info, peerId) => {
     let pingColor = "text-emerald-400";
-
     if (info.ping > 250) pingColor = "text-red-400";
     else if (info.ping > 110) pingColor = "text-amber-400";
 
@@ -991,20 +1181,22 @@ function renderPeersList() {
       ? `<span class="text-[10px] bg-brand-orange text-white font-bold px-2 py-0.5 rounded animate-pulse">BICARA</span>`
       : routeBadge;
     const item = document.createElement("div");
+
     item.className = `flex items-center justify-between bg-asphalt-950 border ${info.isTalking ? "border-brand-orange" : "border-asphalt-800"} rounded-xl px-3 py-2`;
+    // callsign berasal dari rekan (tidak tepercaya), wajib di-escape
     item.innerHTML = `
-                    <div class="flex items-center gap-2.5">
-                        <div class="w-2.5 h-2.5 rounded-full ${info.isTalking ? "bg-brand-orange animate-ping" : "bg-emerald-500"}"></div>
-                        <div>
-                            <div class="text-xs font-bold text-white">${info.callsign}</div>
-                            <div class="text-[10px] font-mono text-gray-500">${peerId}</div>
-                        </div>
-                    </div>
-                    <div class="flex items-center gap-2">
-                        ${talkingBadge}
-                        <span class="font-mono text-xs font-bold ${pingColor}">${info.ping} ms</span>
-                    </div>
-                `;
+      <div class="flex items-center gap-2.5">
+        <div class="w-2.5 h-2.5 rounded-full ${info.isTalking ? "bg-brand-orange animate-ping" : "bg-emerald-500"}"></div>
+        <div>
+          <div class="text-xs font-bold text-white">${escapeHtml(info.callsign)}</div>
+          <div class="text-[10px] font-mono text-gray-500">${escapeHtml(peerId)}</div>
+        </div>
+      </div>
+      <div class="flex items-center gap-2">
+        ${talkingBadge}
+        <span class="font-mono text-xs font-bold ${pingColor}">${info.ping} ms</span>
+      </div>
+    `;
     listEl.appendChild(item);
   });
 }
@@ -1021,7 +1213,7 @@ function motoMeshApp() {
     leaveModalOpen: false,
     customTurnOpen: false,
     callsignInput: localStorage.getItem("motomesh_callsign") || "",
-    bitrateInput: String(getSavedSession()?.bitrate || 8000),
+    bitrateInput: String(getSavedSession()?.bitrate || DEFAULT_BITRATE),
     turnUrl: localStorage.getItem("motomesh_turn_url") || "",
     turnUser: localStorage.getItem("motomesh_turn_user") || "",
     turnPass: localStorage.getItem("motomesh_turn_pass") || "",
@@ -1033,19 +1225,35 @@ function motoMeshApp() {
     init() {
       this.$watch("windFilterEnabled", (value) => {
         state.windFilterEnabled = value;
+        if (state.filterNode) state.filterNode.frequency.value = value ? 300 : 20;
+        saveActiveSession();
       });
 
       this.$watch("latchMode", (value) => {
         state.latchMode = value;
+        setTransmissionState(false);
+        saveActiveSession();
       });
-
-      if (getSavedSession()) this.setupOpen = false;
     },
 
     async startSystem() {
+      if (state.active) return;
+
       const nameInput = this.callsignInput.trim().toUpperCase();
-      state.callsign = nameInput || `RIDER-${Math.floor(10 + Math.random() * 89)}`;
+
+      if (!nameInput) {
+        this.callsignInput = "";
+
+        showToast(
+          "Callsign / Nama Rider wajib diisi sebelum mengaktifkan radio.",
+          "alert",
+        );
+        document.getElementById("rider-name-input")?.focus();
+        return;
+      }
+      state.callsign = nameInput;
       this.callsignInput = state.callsign;
+      document.getElementById("my-callsign").textContent = state.callsign;
 
       try {
         localStorage.setItem("motomesh_callsign", state.callsign);
@@ -1053,45 +1261,41 @@ function motoMeshApp() {
 
       state.bitrate = parseInt(this.bitrateInput, 10);
       state.myId = generateShortId();
+      state.active = true;
       saveActiveSession();
+
       document.getElementById("network-mode-badge").textContent =
         `${state.bitrate / 1000}K FEC`;
       this.setupOpen = false;
 
       await requestScreenWakeLock();
       await initAudioPipeline();
+
+      // Leave ditekan selama menunggu izin mikrofon
+      if (!state.active) return;
+
       initPeerNetwork(state.myId);
       startHeartbeatMonitor();
       playToneBeep(1046, 0.1);
     },
 
-    copyId() {
+    async copyId() {
       if (!state.myId) return;
 
-      if (navigator.clipboard?.writeText) {
-        navigator.clipboard
-          .writeText(state.myId)
-          .then(() => {
-            showToast(`ID ${state.myId} disalin! Kirim ke teman touring.`, "success");
-          })
-          .catch(() => {
-            const tempInput = document.createElement("input");
-            tempInput.value = state.myId;
-            document.body.appendChild(tempInput);
-            tempInput.select();
-            document.execCommand("copy");
-            tempInput.remove();
-            showToast(`ID ${state.myId} disalin! Kirim ke teman touring.`, "success");
-          });
-      } else {
-        const tempInput = document.createElement("input");
-        tempInput.value = state.myId;
-        document.body.appendChild(tempInput);
-        tempInput.select();
+      try {
+        await navigator.clipboard.writeText(state.myId);
+      } catch {
+        // Fallback untuk konteks non-HTTPS atau izin clipboard ditolak
+        const input = Object.assign(document.createElement("input"), {
+          value: state.myId,
+        });
+        document.body.appendChild(input);
+        input.select();
         document.execCommand("copy");
-        tempInput.remove();
-        showToast(`ID ${state.myId} disalin! Kirim ke teman touring.`, "success");
+        input.remove();
       }
+
+      showToast(`ID ${state.myId} disalin! Kirim ke teman touring.`, "success");
     },
 
     connectPeer() {
@@ -1101,31 +1305,18 @@ function motoMeshApp() {
 
     toggleWindFilter() {
       this.windFilterEnabled = !this.windFilterEnabled;
-      state.windFilterEnabled = this.windFilterEnabled;
-      saveActiveSession();
-
-      if (state.filterNode)
-        state.filterNode.frequency.value = this.windFilterEnabled ? 300 : 20;
     },
 
     setMode(latch) {
       this.latchMode = latch;
-      state.latchMode = latch;
-      saveActiveSession();
-      setTransmissionState(false);
     },
 
     pressPtt() {
-      if (this.latchMode) setTransmissionState(!state.isTransmitting);
-      else setTransmissionState(true);
-
-      this.isTransmitting = state.isTransmitting;
+      setTransmissionState(this.latchMode ? !state.isTransmitting : true);
     },
 
     releasePtt() {
       if (!this.latchMode && state.isTransmitting) setTransmissionState(false);
-
-      this.isTransmitting = state.isTransmitting;
     },
 
     sendBeacon(code, message) {
@@ -1133,32 +1324,29 @@ function motoMeshApp() {
     },
 
     confirmLeave() {
-      leaveCommunicationSession();
       this.leaveModalOpen = false;
+      leaveCommunicationSession();
       this.setupOpen = true;
-      this.isTransmitting = false;
     },
   };
 }
 
-window.motoMeshApp = motoMeshApp;
+document.addEventListener("alpine:init", () => {
+  Alpine.data("motoMeshApp", motoMeshApp);
+});
 
 window.addEventListener("keydown", (e) => {
-  if (e.code === "Space" && document.activeElement.tagName !== "INPUT" && !e.repeat) {
-    e.preventDefault();
+  if (!state.active || e.code !== "Space" || e.repeat) return;
+  if (document.activeElement.matches("input, select")) return;
 
-    if (state.latchMode) setTransmissionState(!state.isTransmitting);
-    else setTransmissionState(true);
-  }
+  e.preventDefault();
+  setTransmissionState(state.latchMode ? !state.isTransmitting : true);
 });
 
 window.addEventListener("keyup", (e) => {
-  if (
-    e.code === "Space" &&
-    document.activeElement.tagName !== "INPUT" &&
-    !state.latchMode
-  ) {
-    e.preventDefault();
-    setTransmissionState(false);
-  }
+  if (!state.active || e.code !== "Space" || state.latchMode) return;
+  if (document.activeElement.matches("input, select")) return;
+
+  e.preventDefault();
+  setTransmissionState(false);
 });

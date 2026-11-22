@@ -50,7 +50,8 @@
     </script>
   </head>
   <body
-    x-data="motoMeshApp()"
+    x-data="motoMeshApp"
+    @ptt-change.window="isTransmitting = $event.detail"
     class="min-h-screen flex flex-col justify-between antialiased selection:bg-brand-orange selection:text-white"
   >
     <div
@@ -90,8 +91,12 @@
               type="text"
               id="rider-name-input"
               x-model="callsignInput"
+              @keydown.enter="startSystem()"
               maxlength="16"
-              placeholder="Contoh: RIDER-01 / ANDI"
+              required
+              aria-required="true"
+              autocomplete="nickname"
+              placeholder="Wajib diisi, contoh: RIDER-01 / ANDI"
               class="w-full bg-asphalt-950 border border-asphalt-700 rounded-xl px-4 py-2.5 text-white font-mono text-sm focus:outline-none focus:border-brand-orange transition"
             >
           </div>
@@ -105,8 +110,8 @@
               x-model="bitrateInput"
               class="w-full bg-asphalt-950 border border-asphalt-700 rounded-xl px-4 py-2.5 text-white text-sm focus:outline-none focus:border-brand-orange"
             >
-              <option value="8000" selected>Sinyal Ekstrem / Gunung (8 kbps + FEC)</option>
-              <option value="14000">Touring Standar (14 kbps + Filter Angin)</option>
+              <option value="8000">Sinyal Ekstrem / Gunung (8 kbps + FEC)</option>
+              <option value="14000" selected>Touring Standar (14 kbps + Filter Angin)</option>
               <option value="24000">4G/5G Stabil (24 kbps Jernih)</option>
             </select>
           </div>
@@ -207,7 +212,7 @@
               <span
                 id="network-mode-badge"
                 class="text-[10px] font-mono bg-asphalt-800 text-brand-orange px-1.5 py-0.5 rounded border border-brand-orange/30"
-              >8K FEC</span>
+              >14K FEC</span>
               <span
                 id="turn-status-badge"
                 class="text-[10px] font-mono bg-emerald-500/15 text-emerald-400 px-1.5 py-0.5 rounded border border-emerald-500/30"
@@ -224,8 +229,12 @@
             class="bg-asphalt-950 hover:bg-asphalt-800 border border-asphalt-700 rounded-xl px-3 py-1.5 text-right transition active:scale-95"
             title="Klik untuk menyalin ID"
           >
-            <div class="text-[10px] text-gray-400 uppercase">ID Anda (Salin)</div>
-            <div id="my-peer-id" class="font-mono text-xs font-bold text-emerald-400">------</div>
+            <div
+              id="my-callsign"
+              class="text-[10px] font-extrabold uppercase tracking-wide text-white"
+            >BELUM AKTIF</div>
+            <div id="my-peer-id" class="font-mono text-[10px] font-bold text-emerald-400">------</div>
+            <div class="text-[9px] text-gray-500 uppercase">Salin ID</div>
           </button>
           <button
             id="leave-session-btn"
@@ -300,6 +309,20 @@
             Belum ada rider terhubung. Bagikan ID Anda atau masukkan ID teman.
           </div>
         </div>
+      </section>
+
+      <section class="bg-asphalt-900 border border-asphalt-800 rounded-2xl p-3.5">
+        <label
+          for="audio-output-select"
+          class="block text-xs font-bold uppercase tracking-wider text-gray-400 mb-2"
+        >Keluaran Audio</label>
+        <select
+          id="audio-output-select"
+          class="w-full bg-asphalt-950 border border-asphalt-700 rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-brand-orange"
+        >
+          <option value="">Otomatis (perangkat sistem)</option>
+        </select>
+        <p id="audio-output-status" class="text-[10px] text-gray-500 mt-2">Otomatis mengikuti keluaran audio HP atau komputer, termasuk headset Bluetooth dan kabel.</p>
       </section>
 
       <section class="bg-asphalt-900 border border-asphalt-800 rounded-2xl p-3.5">
