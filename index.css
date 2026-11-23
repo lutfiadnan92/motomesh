@@ -1,4 +1,9 @@
-[x-cloak] { display: none !important; }
+html[data-session="active"] #setup-overlay {
+  display: none;
+}
+[x-cloak] {
+  display: none !important;
+}
 body {
   background-color: #090b0e;
   color: #f3f4f6;

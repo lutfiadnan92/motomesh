@@ -1,5 +1,7 @@
 const SESSION_KEY = "motomesh_active_session";
 const MAX_CALLSIGN_LENGTH = 16;
+const PEER_ID_PATTERN = /^MT-[A-HJ-NP-Z2-9]{4}$/;
+const MAX_SHARED_PEERS = 20;
 const DEFAULT_BITRATE = 14000;
 const state = {
   peer: null,
@@ -253,7 +255,6 @@ window.addEventListener("DOMContentLoaded", async () => {
 
   if (!activeSession) return;
 
-  // Tampilan tombol (ANGIN, mode PTT) dikelola Alpine dari getSavedSession()
   state.active = true;
   state.myId = activeSession.myId || generateShortId();
   state.callsign = activeSession.callsign || "RIDER";
@@ -263,6 +264,7 @@ window.addEventListener("DOMContentLoaded", async () => {
 
   if (Array.isArray(activeSession.peers)) {
     activeSession.peers.forEach((p) => state.savedPeers.add(p));
+    renderPeersList();
   }
 
   document.getElementById("my-callsign").textContent = state.callsign;
@@ -272,12 +274,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   await requestScreenWakeLock();
   await initAudioPipeline();
 
-  // Leave bisa terjadi selagi menunggu izin mikrofon
   if (!state.active) return;
-
-  if (state.filterNode) {
-    state.filterNode.frequency.value = state.windFilterEnabled ? 300 : 20;
-  }
 
   initPeerNetwork(state.myId);
   startHeartbeatMonitor();
@@ -390,7 +387,7 @@ async function initAudioPipeline() {
   const source = state.audioCtx.createMediaStreamSource(state.rawStream);
   state.filterNode = state.audioCtx.createBiquadFilter();
   state.filterNode.type = "highpass";
-  state.filterNode.frequency.value = 300;
+  state.filterNode.frequency.value = state.windFilterEnabled ? 300 : 20;
 
   const compressor = state.audioCtx.createDynamicsCompressor();
   compressor.threshold.value = -24;
@@ -726,6 +723,7 @@ function connectToRider(targetId, isAutoReconnect = false) {
 
   state.savedPeers.add(targetId);
   saveActiveSession();
+  renderPeersList();
   logRadio(`[DIAL] Menghubungkan ke ${targetId}...`, "text-blue-400");
 
   if (state.sandboxMode && state.localBus) {
@@ -963,11 +961,14 @@ function handleIncomingData(remoteId, data) {
     renderPeersList();
 
     if (Array.isArray(data.peers)) {
-      data.peers.forEach((otherId) => {
-        if (otherId !== state.myId && !state.connections.has(otherId)) {
-          connectToRider(otherId, true);
-        }
-      });
+      data.peers
+        .filter((id) => typeof id === "string" && PEER_ID_PATTERN.test(id))
+        .slice(0, MAX_SHARED_PEERS)
+        .forEach((otherId) => {
+          if (otherId !== state.myId && !state.connections.has(otherId)) {
+            connectToRider(otherId, true);
+          }
+        });
     }
   } else if (data.type === "PING") {
     const pong = { type: "PONG", ts: data.ts };
@@ -1183,12 +1184,16 @@ function renderPeersList() {
 
   listEl.innerHTML = "";
   rows.forEach(([peerId, info]) => {
+    const isWaiting = info.routeType === "MENUNGGU";
     let pingColor = "text-emerald-400";
-    if (info.ping > 250) pingColor = "text-red-400";
+
+    if (isWaiting) pingColor = "text-gray-500";
+    else if (info.ping > 250) pingColor = "text-red-400";
     else if (info.ping > 110) pingColor = "text-amber-400";
 
-    const routeBadge =
-      info.routeType === "TURN RELAY"
+    const routeBadge = isWaiting
+      ? `<span class="text-[9px] font-mono bg-asphalt-800 text-gray-400 border border-asphalt-700 px-1.5 py-0.5 rounded">MENUNGGU</span>`
+      : info.routeType === "TURN RELAY"
         ? `<span class="text-[9px] font-mono bg-amber-500/15 text-amber-400 border border-amber-500/30 px-1.5 py-0.5 rounded">TURN</span>`
         : `<span class="text-[9px] font-mono bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 px-1.5 py-0.5 rounded">${info.routeType || "P2P"}</span>`;
     const talkingBadge = info.isTalking
@@ -1200,7 +1205,7 @@ function renderPeersList() {
     // callsign berasal dari rekan (tidak tepercaya), wajib di-escape
     item.innerHTML = `
       <div class="flex items-center gap-2.5">
-        <div class="w-2.5 h-2.5 rounded-full ${info.isTalking ? "bg-brand-orange animate-ping" : "bg-emerald-500"}"></div>
+        <div class="w-2.5 h-2.5 rounded-full ${info.isTalking ? "bg-brand-orange animate-ping" : isWaiting ? "bg-gray-500" : "bg-emerald-500"}"></div>
         <div>
           <div class="text-xs font-bold text-white">${escapeHtml(info.callsign)}</div>
           <div class="text-[10px] font-mono text-gray-500">${escapeHtml(peerId)}</div>
@@ -1208,7 +1213,7 @@ function renderPeersList() {
       </div>
       <div class="flex items-center gap-2">
         ${talkingBadge}
-        <span class="font-mono text-xs font-bold ${pingColor}">${info.ping} ms</span>
+        <span class="font-mono text-xs font-bold ${pingColor}">${isWaiting ? "—" : `${info.ping} ms`}</span>
         <button
           type="button"
           data-remove-peer="${escapeHtml(peerId)}"
@@ -1260,6 +1265,8 @@ function motoMeshApp() {
     isTransmitting: false,
 
     init() {
+      delete document.documentElement.dataset.session;
+
       this.$watch("windFilterEnabled", (value) => {
         state.windFilterEnabled = value;
         if (state.filterNode) state.filterNode.frequency.value = value ? 300 : 20;
