@@ -1,4 +1,5 @@
-const CACHE_NAME = "motomesh-pwa-v3";
+const APP_VERSION = '1.0.1';
+const CACHE_NAME = `motomesh-${APP_VERSION}`;
 const APP_SHELL = [
   "./",
   "./index.html",
