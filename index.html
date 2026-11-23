@@ -96,7 +96,7 @@
               required
               aria-required="true"
               autocomplete="nickname"
-              placeholder="Wajib diisi, contoh: RIDER-01 / ANDI"
+              placeholder="contoh: RIDER-01 / ANDI"
               class="w-full bg-asphalt-950 border border-asphalt-700 rounded-xl px-4 py-2.5 text-white font-mono text-sm focus:outline-none focus:border-brand-orange transition"
             >
           </div>
@@ -387,15 +387,15 @@
           <span class="text-xs text-gray-400 font-medium">Mode Transmisi:</span>
           <div class="flex bg-asphalt-950 p-1 rounded-xl border border-asphalt-800">
             <button
-              id="mode-ptt-btn"
-              @click="setMode(false)"
-              :class="!latchMode ? 'px-3 py-1 rounded-lg text-xs font-bold bg-brand-orange text-white transition' : 'px-3 py-1 rounded-lg text-xs font-bold text-gray-400 hover:text-white transition'"
-            >Tahan (PTT)</button>
-            <button
               id="mode-latch-btn"
               @click="setMode(true)"
               :class="latchMode ? 'px-3 py-1 rounded-lg text-xs font-bold bg-brand-orange text-white transition' : 'px-3 py-1 rounded-lg text-xs font-bold text-gray-400 hover:text-white transition'"
             >Kunci Mic</button>
+            <button
+              id="mode-ptt-btn"
+              @click="setMode(false)"
+              :class="!latchMode ? 'px-3 py-1 rounded-lg text-xs font-bold bg-brand-orange text-white transition' : 'px-3 py-1 rounded-lg text-xs font-bold text-gray-400 hover:text-white transition'"
+            >Tahan (PTT)</button>
           </div>
         </div>
 

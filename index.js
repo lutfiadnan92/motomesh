@@ -233,6 +233,12 @@ async function applyAudioOutput(deviceId = "", notify = true) {
 }
 
 window.addEventListener("DOMContentLoaded", async () => {
+  document.getElementById("peers-list").addEventListener("click", (event) => {
+    const button = event.target.closest("[data-remove-peer]");
+    
+    if (button) removePeer(button.dataset.removePeer);
+  });
+
   const outputSelect = document.getElementById("audio-output-select");
 
   if (outputSelect) {
@@ -1159,16 +1165,24 @@ function startHeartbeatMonitor() {
 
 function renderPeersList() {
   const listEl = document.getElementById("peers-list");
-  const countEl = document.getElementById("peer-count");
-  countEl.textContent = state.connections.size;
 
-  if (state.connections.size === 0) {
+  document.getElementById("peer-count").textContent = state.connections.size;
+
+  const rows = Array.from(state.connections);
+
+  state.savedPeers.forEach((peerId) => {
+    if (!state.connections.has(peerId)) {
+      rows.push([peerId, { callsign: peerId, ping: 0, routeType: "MENUNGGU" }]);
+    }
+  });
+
+  if (rows.length === 0) {
     listEl.innerHTML = `<div class="text-center py-3 text-xs text-gray-500 border border-dashed border-asphalt-800 rounded-xl">Belum ada rider terhubung. Bagikan ID Anda atau masukkan ID teman.</div>`;
     return;
   }
 
   listEl.innerHTML = "";
-  state.connections.forEach((info, peerId) => {
+  rows.forEach(([peerId, info]) => {
     let pingColor = "text-emerald-400";
     if (info.ping > 250) pingColor = "text-red-400";
     else if (info.ping > 110) pingColor = "text-amber-400";
@@ -1195,6 +1209,13 @@ function renderPeersList() {
       <div class="flex items-center gap-2">
         ${talkingBadge}
         <span class="font-mono text-xs font-bold ${pingColor}">${info.ping} ms</span>
+        <button
+          type="button"
+          data-remove-peer="${escapeHtml(peerId)}"
+          title="Hapus dari daftar"
+          aria-label="Hapus ${escapeHtml(peerId)}"
+          class="w-6 h-6 rounded-lg text-xs font-bold text-gray-500 hover:text-red-400 hover:bg-red-500/15 active:scale-95 transition"
+        >✕</button>
       </div>
     `;
     listEl.appendChild(item);
@@ -1205,6 +1226,22 @@ function updateConnectionStatus(text, dotClass) {
   document.getElementById("connection-status-text").textContent = text;
   const dot = document.getElementById("status-dot");
   dot.className = `w-3 h-3 rounded-full ${dotClass}`;
+}
+
+function removePeer(remoteId) {
+  const info = state.connections.get(remoteId);
+
+  try {
+    info?.dataConn?.close();
+    info?.mediaCall?.close();
+  } catch (e) {}
+
+  state.connections.delete(remoteId);
+  state.savedPeers.delete(remoteId);
+  document.getElementById(`audio-${remoteId}`)?.remove();
+  saveActiveSession();
+  renderPeersList();
+  logRadio(`[REMOVE] ${remoteId} dihapus dari daftar.`, "text-gray-400");
 }
 
 function motoMeshApp() {
