@@ -1,4 +1,4 @@
-const APP_VERSION = '1.0.1';
+const APP_VERSION = '1.0.2';
 const CACHE_NAME = `motomesh-${APP_VERSION}`;
 const APP_SHELL = [
   "./",
@@ -7,7 +7,7 @@ const APP_SHELL = [
   "./js/main.js",
   "./js/app.js",
   "./js/audio.js",
-  "./js/beacon.js",
+  "./js/flash-signal.js",
   "./js/broadcast.js",
   "./js/config.js",
   "./js/lifecycle.js",

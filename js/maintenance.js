@@ -1,7 +1,13 @@
 import { HEARTBEAT_INTERVAL_MS, PEER_TIMEOUT_MS, RECONNECT_TICK_MS } from "./config.js";
 import { state } from "./state.js";
 import { sendToPeer } from "./broadcast.js";
-import { closePeerConnections, dialPeer, getDial, scheduleRetry } from "./peers.js";
+import {
+  closePeerConnections,
+  dialPeer,
+  getDial,
+  scheduleRetry,
+  hasPeerCapacity,
+} from "./peers.js";
 import { logRadio, renderPeersList } from "./ui.js";
 
 // Rekan yang diam melewati batas waktu ditutup lalu dijadwalkan sambung ulang
@@ -18,7 +24,10 @@ function checkHeartbeat() {
   timedOut.forEach((peerId) => {
     const name = state.connections.get(peerId).callsign;
 
-    logRadio(`[TIMEOUT] Sinyal ${name} hilang. Mencoba menyambung ulang...`, "text-red-400");
+    logRadio(
+      `[TIMEOUT] Sinyal ${name} hilang. Mencoba menyambung ulang...`,
+      "text-red-400",
+    );
     closePeerConnections(peerId);
     scheduleRetry(peerId);
   });
@@ -35,7 +44,12 @@ export function reconnectMissingPeers() {
   const now = Date.now();
 
   state.savedPeers.forEach((peerId) => {
-    if (state.connections.has(peerId) || now < getDial(peerId).nextAt) return;
+    if (
+      !hasPeerCapacity() ||
+      state.connections.has(peerId) ||
+      now < getDial(peerId).nextAt
+    )
+      return;
 
     dialPeer(peerId);
   });

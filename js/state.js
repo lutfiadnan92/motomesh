@@ -21,6 +21,7 @@ export const state = {
   reconnectTimer: null,
   leaving: false,
   connections: new Map(),
+  pendingPeers: new Set(),
   // peerId -> { attempts, nextAt, dataConn, mediaCall }: percobaan dial yang belum tersambung
   dials: new Map(),
   savedPeers: new Set(),

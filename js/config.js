@@ -4,7 +4,11 @@ export const DEFAULT_BITRATE = 14000;
 
 // Format ID dari generateShortId(); dipakai untuk menyaring ID yang dibagikan rekan
 export const PEER_ID_PATTERN = /^MT-[A-HJ-NP-Z2-9]{4}$/;
-export const MAX_SHARED_PEERS = 50;
+// Batas anggota rombongan termasuk perangkat sendiri.
+export const MAX_TOTAL_RIDERS = 22;
+// Setiap perangkat hanya membuat koneksi langsung ke 21 rider lainnya.
+export const MAX_ACTIVE_PEERS = MAX_TOTAL_RIDERS - 1;
+export const MAX_SHARED_PEERS = MAX_ACTIVE_PEERS;
 
 export const HEARTBEAT_INTERVAL_MS = 2500;
 export const PEER_TIMEOUT_MS = 12000;

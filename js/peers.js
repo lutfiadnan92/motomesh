@@ -2,6 +2,8 @@ import {
   LARGER_ID_GRACE_MS,
   MAX_CALLSIGN_LENGTH,
   MAX_SHARED_PEERS,
+  MAX_ACTIVE_PEERS,
+  MAX_TOTAL_RIDERS,
   PEER_ID_PATTERN,
   RECONNECT_BACKOFF_MS,
 } from "./config.js";
@@ -28,6 +30,8 @@ export function getDial(peerId) {
 export function abandonDial(dial) {
   if (!dial) return;
 
+  dial.connecting = false;
+
   try {
     dial.dataConn?.close();
     dial.mediaCall?.close();
@@ -48,14 +52,39 @@ export function scheduleRetry(peerId) {
   const dial = getDial(peerId);
 
   abandonDial(dial);
+  dial.connecting = false;
   dial.attempts = 0;
   dial.nextAt = Date.now() + dialGraceMs(peerId);
 }
 
+export function getReservedPeerCount() {
+  let count = state.connections.size;
+
+  state.dials.forEach((dial) => {
+    if (dial.connecting) count += 1;
+  });
+
+  return count;
+}
+
+export function hasPeerCapacity(peerId = null) {
+  if (peerId && (state.connections.has(peerId) || state.dials.get(peerId)?.connecting)) {
+    return true;
+  }
+
+  return getReservedPeerCount() < MAX_ACTIVE_PEERS;
+}
+
 export function dialPeer(peerId) {
+  if (!state.active || state.connections.has(peerId) || !hasPeerCapacity(peerId)) return;
+
   const dial = getDial(peerId);
 
+  if (dial.connecting) return;
+
   abandonDial(dial);
+
+  dial.connecting = true;
   dial.attempts += 1;
   dial.nextAt = Date.now() + nextRetryDelay(dial.attempts);
 
@@ -73,7 +102,10 @@ export function dialPeer(peerId) {
     return;
   }
 
-  if (!state.peer?.open) return;
+  if (!state.peer?.open) {
+    dial.connecting = false;
+    return;
+  }
 
   dial.dataConn = state.peer.connect(peerId, {
     reliable: false,
@@ -127,6 +159,18 @@ export function connectToRider(targetId, isAutoReconnect = false) {
   state.savedPeers.add(targetId);
   saveActiveSession();
 
+  if (!hasPeerCapacity(targetId)) {
+    renderPeersList();
+
+    if (!isAutoReconnect) {
+      showToast(
+        `${targetId} masuk antrean. Perangkat ini sudah mencapai ${MAX_ACTIVE_PEERS} koneksi langsung (target grup ${MAX_TOTAL_RIDERS} rider).`,
+      );
+    }
+
+    return;
+  }
+
   if (isAutoReconnect) {
     // Dial dilakukan loop sambung ulang agar kedua sisi tidak bertabrakan
     if (!state.dials.has(targetId)) scheduleRetry(targetId);
@@ -174,6 +218,24 @@ export function setupDataConnection(conn) {
   const remoteId = conn.peer;
 
   conn.on("open", () => {
+    if (!hasPeerCapacity(remoteId)) {
+      state.pendingPeers.add(remoteId);
+
+      try {
+        conn.send({
+          type: "WAITING",
+          reason: `Batas ${MAX_ACTIVE_PEERS} koneksi langsung per perangkat tercapai (target grup ${MAX_TOTAL_RIDERS} rider)`,
+        });
+      } catch (e) {}
+
+      renderPeersList();
+      logRadio(`[WAITING] ${remoteId} menunggu slot tersedia.`, "text-amber-400");
+      conn.close();
+
+      return;
+    }
+
+    state.pendingPeers.delete(remoteId);
     state.savedPeers.add(remoteId);
     saveActiveSession();
 
@@ -285,6 +347,20 @@ export function setupMediaCall(call, { outbound = false } = {}) {
 }
 
 export function handleIncomingData(remoteId, data) {
+  if (data?.type === "WAITING") {
+    const dial = getDial(remoteId);
+    dial.connecting = false;
+    dial.nextAt = Date.now() + RECONNECT_BACKOFF_MS[0];
+
+    renderPeersList();
+    logRadio(
+      `[WAITING] ${remoteId} sedang menunggu slot rider tersedia. ${data.reason || ""}`.trim(),
+      "text-amber-400",
+    );
+
+    return;
+  }
+
   const peerInfo = state.connections.get(remoteId);
 
   if (!peerInfo) return;

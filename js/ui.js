@@ -52,7 +52,16 @@ export function renderPeersList() {
 
   state.savedPeers.forEach((peerId) => {
     if (!state.connections.has(peerId)) {
-      rows.push([peerId, { callsign: peerId, ping: 0, routeType: "MENUNGGU" }]);
+      const isConnecting = state.dials.get(peerId)?.connecting;
+      
+      rows.push([
+        peerId,
+        {
+          callsign: peerId,
+          ping: 0,
+          routeType: isConnecting ? "MENGHUBUNGKAN" : "MENUNGGU",
+        },
+      ]);
     }
   });
 
@@ -64,6 +73,7 @@ export function renderPeersList() {
   listEl.innerHTML = "";
   rows.forEach(([peerId, info]) => {
     const isWaiting = info.routeType === "MENUNGGU";
+    const isConnecting = info.routeType === "MENGHUBUNGKAN";
     let pingColor = "text-emerald-400";
 
     if (isWaiting) pingColor = "text-gray-500";
@@ -72,9 +82,11 @@ export function renderPeersList() {
 
     const routeBadge = isWaiting
       ? `<span class="text-[9px] font-mono bg-asphalt-800 text-gray-400 border border-asphalt-700 px-1.5 py-0.5 rounded">MENUNGGU</span>`
-      : info.routeType === "TURN RELAY"
-        ? `<span class="text-[9px] font-mono bg-amber-500/15 text-amber-400 border border-amber-500/30 px-1.5 py-0.5 rounded">TURN</span>`
-        : `<span class="text-[9px] font-mono bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 px-1.5 py-0.5 rounded">${info.routeType || "P2P"}</span>`;
+      : isConnecting
+        ? `<span class="text-[9px] font-mono bg-blue-500/15 text-blue-400 border border-blue-500/30 px-1.5 py-0.5 rounded">MENGHUBUNGKAN</span>`
+        : info.routeType === "TURN RELAY"
+          ? `<span class="text-[9px] font-mono bg-amber-500/15 text-amber-400 border border-amber-500/30 px-1.5 py-0.5 rounded">TURN</span>`
+          : `<span class="text-[9px] font-mono bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 px-1.5 py-0.5 rounded">${info.routeType || "P2P"}</span>`;
     const talkingBadge = info.isTalking
       ? `<span class="text-[10px] bg-brand-orange text-white font-bold px-2 py-0.5 rounded animate-pulse">BICARA</span>`
       : routeBadge;
@@ -92,14 +104,14 @@ export function renderPeersList() {
       </div>
       <div class="flex items-center gap-2">
         ${talkingBadge}
-        <span class="font-mono text-xs font-bold ${pingColor}">${isWaiting ? "—" : `${info.ping} ms`}</span>
+        <span class="font-mono text-xs font-bold ${pingColor}">${isWaiting || isConnecting ? "â€”" : `${info.ping} ms`}</span>
         <button
           type="button"
           data-remove-peer="${escapeHtml(peerId)}"
           title="Hapus dari daftar"
           aria-label="Hapus ${escapeHtml(peerId)}"
           class="w-6 h-6 rounded-lg text-xs font-bold text-gray-500 hover:text-red-400 hover:bg-red-500/15 active:scale-95 transition"
-        >✕</button>
+        >âœ•</button>
       </div>
     `;
     listEl.appendChild(item);

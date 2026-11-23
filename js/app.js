@@ -8,7 +8,7 @@ import { requestScreenWakeLock } from "./wakelock.js";
 import { initPeerNetwork } from "./signaling.js";
 import { startPeerMaintenance } from "./maintenance.js";
 import { connectToRider } from "./peers.js";
-import { sendTacticalBeacon } from "./beacon.js";
+import { sendTacticalBeacon } from "./flash-signal.js";
 import { leaveCommunicationSession } from "./lifecycle.js";
 
 export function motoMeshApp() {
