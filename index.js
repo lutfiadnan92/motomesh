@@ -14,7 +14,7 @@ const state = {
   filterNode: null,
   windFilterEnabled: true,
   isTransmitting: false,
-  latchMode: false,
+  latchMode: true,
   sandboxMode: false,
   localBus: null,
   wakeLock: null,
@@ -235,7 +235,7 @@ async function applyAudioOutput(deviceId = "", notify = true) {
 window.addEventListener("DOMContentLoaded", async () => {
   document.getElementById("peers-list").addEventListener("click", (event) => {
     const button = event.target.closest("[data-remove-peer]");
-    
+
     if (button) removePeer(button.dataset.removePeer);
   });
 
@@ -259,7 +259,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   state.callsign = activeSession.callsign || "RIDER";
   state.bitrate = activeSession.bitrate || DEFAULT_BITRATE;
   state.windFilterEnabled = activeSession.windFilterEnabled ?? true;
-  state.latchMode = !!activeSession.latchMode;
+  state.latchMode = activeSession.latchMode ?? true;
 
   if (Array.isArray(activeSession.peers)) {
     activeSession.peers.forEach((p) => state.savedPeers.add(p));
@@ -1256,7 +1256,7 @@ function motoMeshApp() {
     turnPass: localStorage.getItem("motomesh_turn_pass") || "",
     targetPeerId: "",
     windFilterEnabled: getSavedSession()?.windFilterEnabled ?? true,
-    latchMode: !!getSavedSession()?.latchMode,
+    latchMode: getSavedSession()?.latchMode ?? true,
     isTransmitting: false,
 
     init() {
