@@ -15,5 +15,15 @@ export const PEER_TIMEOUT_MS = 12000;
 
 export const RECONNECT_TICK_MS = 2000;
 export const RECONNECT_BACKOFF_MS = [3000, 6000, 12000, 30000];
+// Cukup panjang agar negosiasi ICE lewat TURN di sinyal seluler lemah sempat selesai
+export const DIAL_TIMEOUT_MS = 25000;
+export const SAME_ID_RETRY_MS = [2000, 4000, 8000, 8000];
 // Hanya rekan ber-ID lebih besar yang menunggu, agar dua sisi tidak saling dial bersamaan
 export const LARGER_ID_GRACE_MS = 5000;
+export const MIC_CONSTRAINTS = {
+  echoCancellation: true,
+  noiseSuppression: true,
+  autoGainControl: true,
+  channelCount: 1,
+  sampleRate: 16000,
+};

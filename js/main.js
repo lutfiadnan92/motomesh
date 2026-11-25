@@ -1,7 +1,12 @@
 import { state } from "./state.js";
 import { generateShortId } from "./utils.js";
 import { motoMeshApp } from "./app.js";
-import { applyAudioOutput, refreshAudioOutputs, setTransmissionState } from "./audio.js";
+import {
+  applyAudioOutput,
+  refreshAudioOutputs,
+  scheduleAudioDeviceRefresh,
+  setTransmissionState,
+} from "./audio.js";
 import { resumeSession } from "./lifecycle.js";
 import { activateSandboxMeshFallback } from "./local-mesh.js";
 import { removePeer } from "./peers.js";
@@ -27,8 +32,9 @@ window.addEventListener("DOMContentLoaded", async () => {
       applyAudioOutput(event.target.value),
     );
     await refreshAudioOutputs();
-    navigator.mediaDevices?.addEventListener?.("devicechange", refreshAudioOutputs);
   }
+
+  navigator.mediaDevices?.addEventListener?.("devicechange", scheduleAudioDeviceRefresh);
 
   await resumeSession();
 });
@@ -42,7 +48,10 @@ document.addEventListener("visibilitychange", () => {
 window.addEventListener("unhandledrejection", (event) => {
   const reason = event.reason;
 
-  if (reason && (reason.name === "SecurityError" || String(reason).includes("WebSocket"))) {
+  if (
+    reason &&
+    (reason.name === "SecurityError" || String(reason).includes("WebSocket"))
+  ) {
     event.preventDefault();
     if (state.active) activateSandboxMeshFallback(state.myId || generateShortId());
   }

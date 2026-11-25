@@ -1,4 +1,5 @@
 import {
+  DIAL_TIMEOUT_MS,
   LARGER_ID_GRACE_MS,
   MAX_CALLSIGN_LENGTH,
   MAX_SHARED_PEERS,
@@ -20,17 +21,32 @@ export function getDial(peerId) {
   let dial = state.dials.get(peerId);
 
   if (!dial) {
-    dial = { attempts: 0, nextAt: 0, dataConn: null, mediaCall: null };
+    dial = {
+      attempts: 0,
+      nextAt: 0,
+      connecting: false,
+      timeoutId: null,
+      dataConn: null,
+      mediaCall: null,
+    };
     state.dials.set(peerId, dial);
   }
 
   return dial;
 }
 
+function clearDialTimer(dial) {
+  if (!dial?.timeoutId) return;
+
+  clearTimeout(dial.timeoutId);
+  dial.timeoutId = null;
+}
+
 export function abandonDial(dial) {
   if (!dial) return;
 
   dial.connecting = false;
+  clearDialTimer(dial);
 
   try {
     dial.dataConn?.close();
@@ -39,6 +55,68 @@ export function abandonDial(dial) {
 
   dial.dataConn = null;
   dial.mediaCall = null;
+}
+
+export function takeDial(peerId) {
+  const dial = state.dials.get(peerId);
+
+  if (!dial) return null;
+
+  clearDialTimer(dial);
+  state.dials.delete(peerId);
+  return dial;
+}
+
+// Keterangan log menyesuaikan penyebab: server tidak mengenal ID, atau tidak ada jawaban
+function describeWait(peerId, reason, isSteadyState) {
+  const subject = reason === "timeout" ? "belum menjawab" : "belum terdaftar di server";
+
+  return isSteadyState
+    ? `[WAIT] ${peerId} masih ${subject}. Percobaan berikutnya setiap 30 detik.`
+    : `[WAIT] ${peerId} ${subject}. Akan dicoba lagi.`;
+}
+
+// reason: "unavailable" (server menjawab EXPIRE) atau "timeout" (tidak ada jawaban)
+export function releaseDial(peerId, reason = "unavailable") {
+  if (!peerId || state.connections.has(peerId)) return;
+
+  const dial = state.dials.get(peerId);
+
+  if (!dial?.connecting) return;
+
+  const attempts = dial.attempts;
+
+  abandonDial(dial);
+
+  // Timeout datang jauh setelah dial dimulai, sehingga nextAt bawaan dialPeer()
+  // sudah lewat. Hitung ulang dari sekarang agar jeda 3/6/12/30 detik tetap berlaku.
+  if (reason === "timeout") {
+    dial.nextAt = Math.max(dial.nextAt, Date.now() + nextRetryDelay(attempts));
+  }
+
+  if (attempts <= 1) {
+    logRadio(describeWait(peerId, reason, false), "text-amber-400");
+  } else if (attempts === RECONNECT_BACKOFF_MS.length) {
+    logRadio(describeWait(peerId, reason, true), "text-amber-400");
+  }
+
+  renderPeersList();
+}
+
+// Dipanggil setelah ID terdaftar ulang: dial milik peer lama tidak akan pernah dijawab.
+// Lepaskan agar tidak tertahan di MENGHUBUNGKAN, dan izinkan percobaan ulang segera.
+export function releaseStaleDials() {
+  let released = 0;
+
+  state.dials.forEach((dial, peerId) => {
+    if (!dial.connecting || state.connections.has(peerId)) return;
+
+    abandonDial(dial);
+    dial.nextAt = 0;
+    released += 1;
+  });
+
+  if (released > 0) renderPeersList();
 }
 
 // Jeda sebelum percobaan berikutnya; naik bertahap lalu bertahan di nilai terbesar
@@ -82,6 +160,11 @@ export function dialPeer(peerId) {
 
   if (dial.connecting) return;
 
+  // Tanpa jalur sinyal, jangan hitung sebagai percobaan agar jeda tidak naik sia-sia
+  const viaLocalBus = state.sandboxMode && state.localBus;
+
+  if (!viaLocalBus && !state.peer?.open) return;
+
   abandonDial(dial);
 
   dial.connecting = true;
@@ -99,11 +182,7 @@ export function dialPeer(peerId) {
       target: peerId,
       callsign: state.callsign,
     });
-    return;
-  }
-
-  if (!state.peer?.open) {
-    dial.connecting = false;
+    armDialTimeout(peerId, dial);
     return;
   }
 
@@ -119,6 +198,13 @@ export function dialPeer(peerId) {
     });
     setupMediaCall(call, { outbound: true });
   }
+
+  armDialTimeout(peerId, dial);
+}
+
+function armDialTimeout(peerId, dial) {
+  clearDialTimer(dial);
+  dial.timeoutId = setTimeout(() => releaseDial(peerId, "timeout"), DIAL_TIMEOUT_MS);
 }
 
 // Entri di `connections` dihapus lebih dulu agar handler "close" tidak
@@ -239,7 +325,7 @@ export function setupDataConnection(conn) {
     state.savedPeers.add(remoteId);
     saveActiveSession();
 
-    const dial = state.dials.get(remoteId);
+    const dial = takeDial(remoteId);
     const existing = state.connections.get(remoteId);
 
     if (existing) {
@@ -255,8 +341,6 @@ export function setupDataConnection(conn) {
         lastPong: Date.now(),
       });
     }
-
-    state.dials.delete(remoteId);
 
     const knownPeers = Array.from(state.connections.keys()).filter(
       (id) => id !== remoteId,

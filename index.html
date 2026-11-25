@@ -292,7 +292,7 @@
             type="text"
             id="target-peer-input"
             x-model="targetPeerId"
-            @keydown.enter="connectPeer()"
+            @keydown.enter="connectPeer(); $event.target.blur()"
             placeholder="Masukkan ID Rider teman..."
             class="flex-1 bg-asphalt-950 border border-asphalt-700 rounded-xl px-3 py-2.5 text-sm font-mono uppercase text-white placeholder-gray-600 focus:outline-none focus:border-brand-orange"
           >

@@ -2,13 +2,14 @@ import { DEFAULT_BITRATE } from "./config.js";
 
 export const state = {
   peer: null,
-  active: false, // false setelah Leave; menghentikan callback async yang datang terlambat
+  active: false,
   myId: "",
   callsign: "RIDER",
   bitrate: DEFAULT_BITRATE,
   rawStream: null,
   processedStream: null,
   audioCtx: null,
+  sourceNode: null,
   gainNode: null,
   filterNode: null,
   windFilterEnabled: true,
@@ -22,9 +23,10 @@ export const state = {
   leaving: false,
   connections: new Map(),
   pendingPeers: new Set(),
-  // peerId -> { attempts, nextAt, dataConn, mediaCall }: percobaan dial yang belum tersambung
   dials: new Map(),
   savedPeers: new Set(),
   offlineQueue: [],
   outputDeviceId: localStorage.getItem("motomesh_output_device") || "",
+  inputRefreshTimer: null,
+  inputRefreshInFlight: false,
 };

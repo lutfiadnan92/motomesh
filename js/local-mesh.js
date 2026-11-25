@@ -2,7 +2,7 @@ import { state } from "./state.js";
 import { saveActiveSession } from "./session.js";
 import { logRadio, renderPeersList, updateConnectionStatus } from "./ui.js";
 import { flushOfflineQueue } from "./broadcast.js";
-import { connectToRider, handleIncomingData, handlePeerLeft } from "./peers.js";
+import { connectToRider, handleIncomingData, handlePeerLeft, takeDial } from "./peers.js";
 
 // Mode cadangan saat WebSocket ke server signaling diblokir: antar tab lewat BroadcastChannel
 export function activateSandboxMeshFallback(id) {
@@ -59,7 +59,7 @@ export function activateSandboxMeshFallback(id) {
 
 function registerLocalPeer(remoteId, callsign) {
   state.savedPeers.add(remoteId);
-  state.dials.delete(remoteId);
+  takeDial(remoteId);
   saveActiveSession();
 
   if (state.connections.has(remoteId)) return;
@@ -90,7 +90,8 @@ function setupLocalAudioBridge() {
     scriptNode.onaudioprocess = (e) => {
       e.outputBuffer.getChannelData(0).fill(0);
 
-      if (!state.isTransmitting || state.connections.size === 0 || !state.localBus) return;
+      if (!state.isTransmitting || state.connections.size === 0 || !state.localBus)
+        return;
 
       const input = e.inputBuffer.getChannelData(0);
       const quantized = new Int8Array(input.length);

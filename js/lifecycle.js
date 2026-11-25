@@ -5,7 +5,7 @@ import { clearActiveSession, getSavedSession } from "./session.js";
 import { logRadio, renderPeersList, showToast, updateConnectionStatus } from "./ui.js";
 import { initAudioPipeline, setTransmissionState } from "./audio.js";
 import { requestScreenWakeLock } from "./wakelock.js";
-import { initPeerNetwork } from "./signaling.js";
+import { initPeerNetwork, resetSignalingState } from "./signaling.js";
 import { startPeerMaintenance, stopPeerMaintenance } from "./maintenance.js";
 import { abandonDial } from "./peers.js";
 
@@ -59,6 +59,7 @@ export function leaveCommunicationSession() {
     } catch (e) {}
 
     stopPeerMaintenance();
+    resetSignalingState();
 
     for (const [peerId, info] of Array.from(state.connections.entries())) {
       try {
@@ -106,6 +107,7 @@ export function leaveCommunicationSession() {
 
     state.rawStream = null;
     state.processedStream = null;
+    state.sourceNode = null;
     state.gainNode = null;
     state.filterNode = null;
 

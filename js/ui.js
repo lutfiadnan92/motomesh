@@ -53,7 +53,7 @@ export function renderPeersList() {
   state.savedPeers.forEach((peerId) => {
     if (!state.connections.has(peerId)) {
       const isConnecting = state.dials.get(peerId)?.connecting;
-      
+
       rows.push([
         peerId,
         {
@@ -104,14 +104,14 @@ export function renderPeersList() {
       </div>
       <div class="flex items-center gap-2">
         ${talkingBadge}
-        <span class="font-mono text-xs font-bold ${pingColor}">${isWaiting || isConnecting ? "â€”" : `${info.ping} ms`}</span>
+        <span class="font-mono text-xs font-bold ${pingColor}">${isWaiting || isConnecting ? "-" : `${info.ping} ms`}</span>
         <button
           type="button"
           data-remove-peer="${escapeHtml(peerId)}"
           title="Hapus dari daftar"
           aria-label="Hapus ${escapeHtml(peerId)}"
           class="w-6 h-6 rounded-lg text-xs font-bold text-gray-500 hover:text-red-400 hover:bg-red-500/15 active:scale-95 transition"
-        >âœ•</button>
+        >x</button>
       </div>
     `;
     listEl.appendChild(item);

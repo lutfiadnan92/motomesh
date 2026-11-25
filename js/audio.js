@@ -1,6 +1,7 @@
 import { state } from "./state.js";
 import { broadcastPayload } from "./broadcast.js";
 import { logRadio, showToast } from "./ui.js";
+import { MIC_CONSTRAINTS } from "./config.js";
 
 export function playToneBeep(freq = 880, duration = 0.08, type = "sine") {
   if (!state.audioCtx) return;
@@ -118,16 +119,13 @@ export async function applyAudioOutput(deviceId = "", notify = true) {
   }
 }
 
+// let inputRefreshTimer = null;
+// let inputRefreshInFlight = false;
+
 export async function initAudioPipeline() {
   try {
     state.rawStream = await navigator.mediaDevices.getUserMedia({
-      audio: {
-        echoCancellation: true,
-        noiseSuppression: true,
-        autoGainControl: true,
-        channelCount: 1,
-        sampleRate: 16000,
-      },
+      audio: MIC_CONSTRAINTS,
       video: false,
     });
   } catch (err) {
@@ -140,7 +138,6 @@ export async function initAudioPipeline() {
     state.rawStream = dummyCtx.createMediaStreamDestination().stream;
   }
 
-  // Leave bisa terjadi saat prompt izin mikrofon masih terbuka; jangan biarkan mic menyala.
   if (!state.active) {
     state.rawStream.getTracks().forEach((track) => track.stop());
     state.rawStream = null;
@@ -150,7 +147,7 @@ export async function initAudioPipeline() {
   state.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
   await applyAudioOutput(state.outputDeviceId, false);
 
-  const source = state.audioCtx.createMediaStreamSource(state.rawStream);
+  state.sourceNode = state.audioCtx.createMediaStreamSource(state.rawStream);
   state.filterNode = state.audioCtx.createBiquadFilter();
   state.filterNode.type = "highpass";
   state.filterNode.frequency.value = state.windFilterEnabled ? 300 : 20;
@@ -165,12 +162,105 @@ export async function initAudioPipeline() {
   state.gainNode.gain.value = 0;
 
   const destination = state.audioCtx.createMediaStreamDestination();
-  source.connect(state.filterNode);
+  state.sourceNode.connect(state.filterNode);
   state.filterNode.connect(compressor);
   compressor.connect(state.gainNode);
   state.gainNode.connect(destination);
   state.processedStream = destination.stream;
   setTransmissionState(false);
+}
+
+export async function refreshAudioInput({ notify = true } = {}) {
+  if (!state.active || !state.audioCtx || !state.filterNode || state.inputRefreshInFlight) {
+    return;
+  }
+
+  state.inputRefreshInFlight = true;
+
+  try {
+    const oldStream = state.rawStream;
+    const oldTrack = oldStream?.getAudioTracks?.()[0] || null;
+    const oldSettings = oldTrack?.getSettings?.() || {};
+    const oldDeviceId = oldSettings.deviceId || "";
+    const oldLabel = (oldTrack?.label || "").toLowerCase();
+
+    const newStream = await navigator.mediaDevices.getUserMedia({
+      audio: MIC_CONSTRAINTS,
+      video: false,
+    });
+
+    if (!state.active) {
+      newStream.getTracks().forEach((t) => t.stop());
+      return;
+    }
+
+    const newTrack = newStream.getAudioTracks()[0];
+    const newSettings = newTrack?.getSettings?.() || {};
+    const newDeviceId = newSettings.deviceId || "";
+    const newLabel = (newTrack?.label || "").toLowerCase();
+
+    if (
+      oldTrack &&
+      newDeviceId &&
+      oldDeviceId &&
+      newDeviceId === oldDeviceId &&
+      newLabel === oldLabel
+    ) {
+      newStream.getTracks().forEach((t) => t.stop());
+      return;
+    }
+
+    try {
+      state.sourceNode?.disconnect();
+    } catch (e) {}
+
+    state.sourceNode = state.audioCtx.createMediaStreamSource(newStream);
+    state.sourceNode.connect(state.filterNode);
+    state.rawStream = newStream;
+
+    newStream.getAudioTracks().forEach((track) => {
+      track.enabled = !!state.isTransmitting;
+    });
+
+    oldStream?.getTracks?.().forEach((track) => {
+      try {
+        track.stop();
+      } catch (e) {}
+    });
+
+    if (notify) {
+      const isBt = /bluetooth|headset|hands-free|hfp|a2dp|earbud|airpod|buds/i.test(
+        newLabel,
+      );
+      showToast(
+        isBt
+          ? "Mikrofon beralih ke headset Bluetooth."
+          : "Mikrofon diperbarui mengikuti perangkat sistem.",
+        "success",
+      );
+      logRadio(
+        `[AUDIO] Input diganti → ${newTrack?.label || "perangkat sistem"}`,
+        "text-sky-400",
+      );
+    }
+  } catch (err) {
+    logRadio(
+      `[WARN] Gagal memperbarui mikrofon: ${err?.message || err}`,
+      "text-amber-400",
+    );
+  } finally {
+    state.inputRefreshInFlight = false;
+  }
+}
+
+export function scheduleAudioDeviceRefresh() {
+  if (state.inputRefreshTimer) clearTimeout(state.inputRefreshTimer);
+
+  state.inputRefreshTimer = setTimeout(async () => {
+    state.inputRefreshTimer = null;
+    await refreshAudioOutputs();
+    await refreshAudioInput({ notify: true });
+  }, 400);
 }
 
 export function setTransmissionState(active) {
