@@ -1,7 +1,7 @@
 import { state } from "./state.js";
 import { broadcastPayload } from "./broadcast.js";
 import { logRadio, showToast } from "./ui.js";
-import { MIC_CONSTRAINTS } from "./config.js";
+import { MIC_CONSTRAINTS, AUDIO_DEVICE_POLL_MS } from "./config.js";
 
 export function playToneBeep(freq = 880, duration = 0.08, type = "sine") {
   if (!state.audioCtx) return;
@@ -119,8 +119,45 @@ export async function applyAudioOutput(deviceId = "", notify = true) {
   }
 }
 
-// let inputRefreshTimer = null;
-// let inputRefreshInFlight = false;
+async function getAudioDeviceSignature() {
+  const devices = await navigator.mediaDevices.enumerateDevices();
+
+  return devices
+    .filter((d) => d.kind === "audioinput" || d.kind === "audiooutput")
+    .map((d) => `${d.kind}:${d.deviceId}`)
+    .sort()
+    .join("|");
+}
+
+// devicechange sering tidak menyala di browser mobile saat headset Bluetooth
+// baru terhubung, jadi perubahan perangkat juga dicek berkala sebagai cadangan
+export function startAudioDeviceWatch() {
+  stopAudioDeviceWatch();
+
+  state.deviceWatchTimer = setInterval(async () => {
+    if (!state.active || !navigator.mediaDevices?.enumerateDevices) return;
+
+    try {
+      const signature = await getAudioDeviceSignature();
+
+      if (signature === state.deviceSignature) return;
+
+      const isFirstCheck = !state.deviceSignature;
+      state.deviceSignature = signature;
+
+      if (isFirstCheck) return;
+
+      scheduleAudioDeviceRefresh();
+    } catch (e) {}
+  }, AUDIO_DEVICE_POLL_MS);
+}
+
+export function stopAudioDeviceWatch() {
+  if (!state.deviceWatchTimer) return;
+
+  clearInterval(state.deviceWatchTimer);
+  state.deviceWatchTimer = null;
+}
 
 export async function initAudioPipeline() {
   try {
@@ -167,6 +204,7 @@ export async function initAudioPipeline() {
   compressor.connect(state.gainNode);
   state.gainNode.connect(destination);
   state.processedStream = destination.stream;
+  startAudioDeviceWatch();
   setTransmissionState(false);
 }
 

@@ -12,12 +12,14 @@ export const MAX_SHARED_PEERS = MAX_ACTIVE_PEERS;
 
 export const HEARTBEAT_INTERVAL_MS = 2500;
 export const PEER_TIMEOUT_MS = 12000;
+export const AUDIO_DEVICE_POLL_MS = 7000;
 
 export const RECONNECT_TICK_MS = 2000;
 export const RECONNECT_BACKOFF_MS = [3000, 6000, 12000, 30000];
 // Cukup panjang agar negosiasi ICE lewat TURN di sinyal seluler lemah sempat selesai
 export const DIAL_TIMEOUT_MS = 25000;
 export const SAME_ID_RETRY_MS = [2000, 4000, 8000, 8000];
+export const SIGNALING_OPEN_TIMEOUT_MS = 10000;
 // Hanya rekan ber-ID lebih besar yang menunggu, agar dua sisi tidak saling dial bersamaan
 export const LARGER_ID_GRACE_MS = 5000;
 export const MIC_CONSTRAINTS = {

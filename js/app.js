@@ -106,6 +106,10 @@ export function motoMeshApp() {
       showToast(`ID ${state.myId} disalin! Kirim ke teman touring.`, "success");
     },
 
+    reloadPage() {
+      window.location.reload();
+    },
+
     connectPeer() {
       connectToRider(this.targetPeerId);
       this.targetPeerId = "";

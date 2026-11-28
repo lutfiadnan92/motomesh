@@ -1,4 +1,4 @@
-import { SAME_ID_RETRY_MS } from "./config.js";
+import { SAME_ID_RETRY_MS, SIGNALING_OPEN_TIMEOUT_MS } from "./config.js";
 import { state } from "./state.js";
 import { generateShortId } from "./utils.js";
 import { saveActiveSession } from "./session.js";
@@ -175,9 +175,19 @@ export function initPeerNetwork(preferredId = null) {
 
   const peer = state.peer;
 
+  let openTimer = setTimeout(() => {
+    openTimer = null;
+
+    if (!state.active || state.peer !== peer || peer.open) return;
+
+    retrySignaling(desiredId);
+  }, SIGNALING_OPEN_TIMEOUT_MS);
+
   peer.on("open", (id) => {
     if (state.peer !== peer) return;
 
+    clearTimeout(openTimer);
+    openTimer = null;
     sameIdAttempts = 0;
     networkAttempts = 0;
     hasRegistered = true;

@@ -3,7 +3,7 @@ import { state } from "./state.js";
 import { generateShortId } from "./utils.js";
 import { clearActiveSession, getSavedSession } from "./session.js";
 import { logRadio, renderPeersList, showToast, updateConnectionStatus } from "./ui.js";
-import { initAudioPipeline, setTransmissionState } from "./audio.js";
+import { initAudioPipeline, setTransmissionState, stopAudioDeviceWatch } from "./audio.js";
 import { requestScreenWakeLock } from "./wakelock.js";
 import { initPeerNetwork, resetSignalingState } from "./signaling.js";
 import { startPeerMaintenance, stopPeerMaintenance } from "./maintenance.js";
@@ -59,6 +59,7 @@ export function leaveCommunicationSession() {
     } catch (e) {}
 
     stopPeerMaintenance();
+    stopAudioDeviceWatch();
     resetSignalingState();
 
     for (const [peerId, info] of Array.from(state.connections.entries())) {

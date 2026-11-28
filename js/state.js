@@ -29,4 +29,6 @@ export const state = {
   outputDeviceId: localStorage.getItem("motomesh_output_device") || "",
   inputRefreshTimer: null,
   inputRefreshInFlight: false,
+  deviceWatchTimer: null,
+  deviceSignature: "",
 };
